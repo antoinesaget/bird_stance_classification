@@ -53,6 +53,18 @@ def healthz() -> dict[str, Any]:
     }
 
 
+@app.get("/health")
+def health() -> dict[str, Any]:
+    # Label Studio ML backend validation calls /health.
+    return {
+        "status": "UP",
+        "model_a_loaded": model_a is not None,
+        "model_a_weights": str(env.model_a_weights),
+        "model_b_checkpoint": str(env.model_b_checkpoint) if env.model_b_checkpoint else None,
+        "model_c_checkpoint": str(env.model_c_checkpoint) if env.model_c_checkpoint else None,
+    }
+
+
 def _task_image_path(task: dict[str, Any]) -> pathlib.Path:
     def _safe_path(value: str) -> pathlib.Path:
         path = pathlib.Path(value).expanduser()

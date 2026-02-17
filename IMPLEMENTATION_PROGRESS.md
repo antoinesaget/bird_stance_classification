@@ -40,3 +40,4 @@ Last updated: 2026-02-17
 - Label Studio manual-login unblock: reset password for existing `admin@local` user to `admin` (Django auth check passed).
 - Label Studio password reset (follow-up): reset both `admin@local` and `antoinesaget19@gmail.com` to `admin` (Django auth checks passed for both).
 - Label Studio image loading unblock: created `LocalFilesImportStorage` for project `4` with path `/data/birds_project/raw_images/scolop2`, enabling `/data/local-files/?d=...` task URLs.
+- Label Studio ML backend validation unblock: added `GET /health` compatibility endpoint (in addition to `/healthz`) and rebuilt `ml-backend`; both return HTTP 200.
