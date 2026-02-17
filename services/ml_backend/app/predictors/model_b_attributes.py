@@ -10,14 +10,14 @@ from .model_a_yolo import Detection
 class AttributePrediction:
     readability: str
     readability_conf: float
-    activity: str
-    activity_conf: float
-    support: str
-    support_conf: float
+    specie: str
+    specie_conf: float
+    behavior: str
+    behavior_conf: float
+    substrate: str
+    substrate_conf: float
     legs: str
     legs_conf: float
-    resting_back: str
-    resting_back_conf: float
 
 
 class AttributePredictor:
@@ -32,53 +32,80 @@ class AttributePredictor:
         self.checkpoint_path = checkpoint_path
 
     def _heuristic(self, det: Detection) -> AttributePrediction:
-        readable_conf = min(0.99, max(0.55, 0.55 + 0.35 * det.score))
-        readable = "readable" if readable_conf >= 0.5 else "unreadable"
-
-        standing_conf = min(0.95, max(0.10, det.h * 0.9 + 0.15))
-        if standing_conf >= 0.45:
-            activity = "standing"
-            activity_conf = standing_conf
+        readability_score = min(0.99, max(0.05, 0.25 + 0.85 * det.score))
+        if readability_score >= 0.78:
+            readability = "readable"
+        elif readability_score >= 0.48:
+            readability = "occluded"
         else:
-            activity = "flying"
-            activity_conf = 1.0 - standing_conf
+            readability = "unreadable"
 
-        if activity == "standing":
-            support = "ground" if det.y + det.h > 0.55 else "water"
-            support_conf = min(0.9, 0.55 + det.score * 0.25)
-            legs = "two" if det.score >= 0.55 else "unsure"
-            legs_conf = min(0.9, 0.50 + det.score * 0.35)
-            resting_back = "no"
-            resting_back_conf = min(0.95, 0.60 + det.score * 0.30)
+        specie_conf = min(0.95, max(0.35, 0.40 + 0.55 * det.score))
+        if det.score >= 0.68:
+            specie = "correct"
+        elif det.score >= 0.40:
+            specie = "unsure"
         else:
-            support = "air"
-            support_conf = 0.75
+            specie = "incorrect"
+
+        if det.y < 0.30:
+            behavior = "flying"
+            behavior_conf = 0.72
+        elif det.h > 0.16:
+            behavior = "resting"
+            behavior_conf = min(0.92, 0.55 + 0.35 * det.score)
+        elif det.w > 0.18:
+            behavior = "foraging"
+            behavior_conf = 0.66
+        else:
+            behavior = "preening"
+            behavior_conf = 0.60
+
+        aspect_ratio = det.w / max(det.h, 1e-6)
+        if behavior == "resting" and aspect_ratio > 2.3:
+            behavior = "backresting"
+            behavior_conf = min(0.9, behavior_conf + 0.08)
+
+        if behavior in {"flying", "display"}:
+            substrate = "air"
+            substrate_conf = 0.80
+        elif det.y + det.h > 0.62:
+            substrate = "ground"
+            substrate_conf = min(0.90, 0.58 + 0.28 * det.score)
+        else:
+            substrate = "water"
+            substrate_conf = min(0.90, 0.56 + 0.30 * det.score)
+
+        if readability == "unreadable" or specie == "incorrect":
+            behavior = "unsure"
+            behavior_conf = 0.50
+            substrate = "unsure"
+            substrate_conf = 0.50
             legs = "unsure"
             legs_conf = 0.5
-            resting_back = "no"
-            resting_back_conf = 0.5
-
-        if readable == "unreadable":
-            activity = "standing"
-            support = "ground"
+        elif behavior in {"resting", "backresting"} and substrate in {"ground", "water"}:
+            if det.score >= 0.70:
+                legs = "two"
+            elif det.score >= 0.52:
+                legs = "one"
+            else:
+                legs = "unsure"
+            legs_conf = min(0.90, 0.52 + 0.34 * det.score)
+        else:
             legs = "unsure"
-            resting_back = "no"
-            activity_conf = 0.5
-            support_conf = 0.5
-            legs_conf = 0.5
-            resting_back_conf = 0.5
+            legs_conf = 0.55
 
         return AttributePrediction(
-            readability=readable,
-            readability_conf=float(readable_conf),
-            activity=activity,
-            activity_conf=float(activity_conf),
-            support=support,
-            support_conf=float(support_conf),
+            readability=readability,
+            readability_conf=float(readability_score),
+            specie=specie,
+            specie_conf=float(specie_conf),
+            behavior=behavior,
+            behavior_conf=float(behavior_conf),
+            substrate=substrate,
+            substrate_conf=float(substrate_conf),
             legs=legs,
             legs_conf=float(legs_conf),
-            resting_back=resting_back,
-            resting_back_conf=float(resting_back_conf),
         )
 
     def predict(self, detections: list[Detection]) -> list[AttributePrediction]:

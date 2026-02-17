@@ -18,19 +18,19 @@ class MultiHeadAttributeModel(nn.Module):
         )
         feat_dim = int(getattr(self.backbone, "num_features", 768))
 
-        self.readability = nn.Linear(feat_dim, 2)
-        self.activity = nn.Linear(feat_dim, 3)
-        self.support = nn.Linear(feat_dim, 3)
-        self.resting_back = nn.Linear(feat_dim, 2)
+        self.readability = nn.Linear(feat_dim, 3)
+        self.specie = nn.Linear(feat_dim, 3)
+        self.behavior = nn.Linear(feat_dim, 7)
+        self.substrate = nn.Linear(feat_dim, 4)
         self.legs = nn.Linear(feat_dim, 3)
 
     def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
         feat = self.backbone(x)
         return {
             "readability": self.readability(feat),
-            "activity": self.activity(feat),
-            "support": self.support(feat),
-            "resting_back": self.resting_back(feat),
+            "specie": self.specie(feat),
+            "behavior": self.behavior(feat),
+            "substrate": self.substrate(feat),
             "legs": self.legs(feat),
         }
 

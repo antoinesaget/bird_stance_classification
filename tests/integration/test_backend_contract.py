@@ -10,14 +10,14 @@ def test_serializer_shapes_prediction() -> None:
     attr = AttributePrediction(
         readability="readable",
         readability_conf=0.9,
-        activity="standing",
-        activity_conf=0.8,
-        support="ground",
-        support_conf=0.8,
+        specie="correct",
+        specie_conf=0.85,
+        behavior="resting",
+        behavior_conf=0.8,
+        substrate="ground",
+        substrate_conf=0.8,
         legs="two",
         legs_conf=0.7,
-        resting_back="no",
-        resting_back_conf=0.75,
     )
 
     out = to_label_studio_prediction(
@@ -33,4 +33,7 @@ def test_serializer_shapes_prediction() -> None:
     assert out["model_version"] == "test-v1"
     assert isinstance(out["result"], list)
     assert any(item["type"] == "rectanglelabels" for item in out["result"])
+    assert any(item["from_name"] == "specie" for item in out["result"])
+    assert any(item["from_name"] == "behavior" for item in out["result"])
+    assert any(item["from_name"] == "substrate" for item in out["result"])
     assert any(item["from_name"] == "image_status" for item in out["result"])

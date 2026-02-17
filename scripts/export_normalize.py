@@ -31,10 +31,10 @@ class BirdRow:
     bbox_w_px: int | None
     bbox_h_px: int | None
     readability: str
-    activity: str | None
-    support: str | None
+    specie: str
+    behavior: str | None
+    substrate: str | None
     legs: str | None
-    resting_back: str | None
 
 
 def parse_args() -> argparse.Namespace:
@@ -105,6 +105,11 @@ def extract_task_rows(
     allow_missing_image_status: bool,
 ) -> tuple[dict[str, str], list[BirdRow]]:
     image_id = image_id_from_task(task)
+    valid_readability = {"readable", "occluded", "unreadable"}
+    valid_specie = {"correct", "incorrect", "unsure"}
+    valid_behavior = {"flying", "foraging", "resting", "backresting", "preening", "display", "unsure"}
+    valid_substrate = {"ground", "water", "air", "unsure"}
+    valid_legs = {"one", "two", "unsure"}
 
     annotations = task.get("annotations") or []
     annotation = annotations[0] if annotations else {"result": []}
@@ -128,10 +133,10 @@ def extract_task_rows(
             region_state[region_id] = {
                 "bbox": (x, y, w, h),
                 "readability": "readable",
-                "activity": None,
-                "support": None,
+                "specie": "correct",
+                "behavior": None,
+                "substrate": None,
                 "legs": None,
-                "resting_back": None,
             }
             continue
 
@@ -149,7 +154,7 @@ def extract_task_rows(
                     parent_id = candidate_id
             if parent_id and parent_id in region_state:
                 choice = first_choice(item)
-                if from_name in {"readability", "activity", "support", "legs", "resting_back"}:
+                if from_name in {"readability", "specie", "behavior", "substrate", "legs"}:
                     region_state[parent_id][from_name] = choice
 
     if image_status is None:
@@ -164,25 +169,38 @@ def extract_task_rows(
     birds: list[BirdRow] = []
     for i, (region_id, state) in enumerate(sorted(region_state.items(), key=lambda it: it[0])):
         readability = normalize_choice(state.get("readability")) or "readable"
-        activity = normalize_choice(state.get("activity"))
-        support = normalize_choice(state.get("support"))
+        specie = normalize_choice(state.get("specie")) or "unsure"
+        behavior = normalize_choice(state.get("behavior"))
+        substrate = normalize_choice(state.get("substrate"))
         legs = normalize_choice(state.get("legs"))
-        resting_back = normalize_choice(state.get("resting_back"))
 
-        if readability == "unreadable":
-            activity = None
-            support = None
+        if readability not in valid_readability:
+            raise ValueError(f"Invalid readability '{readability}' for image {image_id}")
+        if specie not in valid_specie:
+            raise ValueError(f"Invalid specie '{specie}' for image {image_id}")
+        if behavior is not None and behavior not in valid_behavior:
+            raise ValueError(f"Invalid behavior '{behavior}' for image {image_id}")
+        if substrate is not None and substrate not in valid_substrate:
+            raise ValueError(f"Invalid substrate '{substrate}' for image {image_id}")
+        if legs is not None and legs not in valid_legs:
+            raise ValueError(f"Invalid legs '{legs}' for image {image_id}")
+
+        # Mask irrelevant downstream heads early so normalization is deterministic.
+        if readability == "unreadable" or specie == "incorrect":
+            behavior = None
+            substrate = None
             legs = None
-            resting_back = None
         else:
-            if activity != "standing":
-                legs = None
-                resting_back = None
-            else:
+            if behavior is None:
+                behavior = "unsure"
+            if substrate is None:
+                substrate = "unsure"
+
+            if behavior in {"resting", "backresting"} and substrate in {"ground", "water"}:
                 if legs is None:
                     legs = "unsure"
-                if resting_back is None:
-                    resting_back = "no"
+            else:
+                legs = None
 
         x, y, w, h = state["bbox"]
         birds.append(
@@ -199,10 +217,10 @@ def extract_task_rows(
                 bbox_w_px=None,
                 bbox_h_px=None,
                 readability=readability,
-                activity=activity,
-                support=support,
+                specie=specie,
+                behavior=behavior,
+                substrate=substrate,
                 legs=legs,
-                resting_back=resting_back,
             )
         )
 
@@ -283,10 +301,10 @@ def main() -> int:
                 "bbox_w_px",
                 "bbox_h_px",
                 "readability",
-                "activity",
-                "support",
+                "specie",
+                "behavior",
+                "substrate",
                 "legs",
-                "resting_back",
             ]
         )
     birds_df = birds_df.sort_values(["annotation_version", "image_id", "bird_id"]).reset_index(drop=True)
@@ -297,9 +315,37 @@ def main() -> int:
     write_deterministic_parquet(images_df, images_out)
     write_deterministic_parquet(birds_df, birds_out)
 
+    if not birds_df.empty:
+        legs_relevant = (
+            birds_df["readability"].isin(["readable", "occluded"])
+            & (birds_df["specie"] != "incorrect")
+            & birds_df["behavior"].isin(["resting", "backresting"])
+            & birds_df["substrate"].isin(["ground", "water"])
+        )
+        mask_stats = {
+            "total_birds": int(len(birds_df)),
+            "unreadable_rows": int((birds_df["readability"] == "unreadable").sum()),
+            "specie_incorrect_rows": int((birds_df["specie"] == "incorrect").sum()),
+            "behavior_null_rows": int(birds_df["behavior"].isna().sum()),
+            "substrate_null_rows": int(birds_df["substrate"].isna().sum()),
+            "legs_null_rows": int(birds_df["legs"].isna().sum()),
+            "legs_relevant_rows": int(legs_relevant.sum()),
+        }
+    else:
+        mask_stats = {
+            "total_birds": 0,
+            "unreadable_rows": 0,
+            "specie_incorrect_rows": 0,
+            "behavior_null_rows": 0,
+            "substrate_null_rows": 0,
+            "legs_null_rows": 0,
+            "legs_relevant_rows": 0,
+        }
+
     print(f"tasks={len(payload)}")
     print(f"images_rows={len(images_df)}")
     print(f"birds_rows={len(birds_df)}")
+    print(f"mask_stats={json.dumps(mask_stats, sort_keys=True)}")
     print(f"images_out={images_out}")
     print(f"birds_out={birds_out}")
     return 0

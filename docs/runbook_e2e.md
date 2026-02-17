@@ -38,8 +38,13 @@ docker compose --env-file /Users/antoine/bird_leg/.env -f /Users/antoine/bird_le
 
 ## 5) Annotate and export
 - Create project in Label Studio using `/Users/antoine/bird_leg/labelstudio/label_config.xml`.
+- Optional UX variants to test:
+  - `/Users/antoine/bird_leg/labelstudio/variants/label_config_b1_strict_nested.xml`
+  - `/Users/antoine/bird_leg/labelstudio/variants/label_config_b2_strict_collapse.xml`
+  - `/Users/antoine/bird_leg/labelstudio/variants/label_config_b3_strict_compact.xml`
 - In project settings:
   - disable `Interactive preannotations`
+  - enable `Use predictions to prelabel tasks`
   - keep `Auto-Accept Suggestions` disabled during manual QA
 - Import `/Users/antoine/bird_leg/data/birds_project/labelstudio/imports/scolop2_sample50.tasks.json` for the sample batch, or import from `${BIRDS_DATA_ROOT}/raw_images/scolop2`.
 - Export annotations as `ann_vXXX.json` into `${BIRDS_DATA_ROOT}/labelstudio/exports`.

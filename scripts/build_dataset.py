@@ -77,10 +77,10 @@ def main() -> int:
             b.bbox_w,
             b.bbox_h,
             b.readability,
-            b.activity,
-            b.support,
+            b.specie,
+            b.behavior,
+            b.substrate,
             b.legs,
-            b.resting_back,
             i.image_status,
             m.filepath,
             m.site_id,
@@ -119,7 +119,7 @@ def main() -> int:
         raise RuntimeError("val/test image leakage detected")
 
     label_counts = {}
-    for column in ["readability", "activity", "support", "legs", "resting_back", "image_status"]:
+    for column in ["readability", "specie", "behavior", "substrate", "legs", "image_status"]:
         vc = df[column].fillna("<null>").value_counts().sort_index().to_dict()
         label_counts[column] = {str(k): int(v) for k, v in vc.items()}
 

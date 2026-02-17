@@ -184,6 +184,25 @@ def predict(payload: dict[str, Any]) -> dict[str, Any]:
             detections = model_a.predict(image_path)
             attrs = model_b.predict(detections)
             image_status_label, image_status_conf = model_c.predict_label(detections)
+            logger.info(
+                "predict task=%s image=%s detections=%d image_status=%s conf=%.3f",
+                task_id,
+                image_path.name,
+                len(detections),
+                image_status_label,
+                image_status_conf,
+            )
+            for idx, attr in enumerate(attrs):
+                logger.debug(
+                    "predict task=%s det_idx=%d readability=%s specie=%s behavior=%s substrate=%s legs=%s",
+                    task_id,
+                    idx,
+                    attr.readability,
+                    attr.specie,
+                    attr.behavior,
+                    attr.substrate,
+                    attr.legs,
+                )
 
             pred = to_label_studio_prediction(
                 task_id=task_id,

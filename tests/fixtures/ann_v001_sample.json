@@ -32,14 +32,21 @@
             "value": {"choices": ["readable"]}
           },
           {
-            "from_name": "activity",
+            "from_name": "specie",
             "to_name": "image",
             "type": "choices",
             "parentID": "r1",
-            "value": {"choices": ["standing"]}
+            "value": {"choices": ["correct"]}
           },
           {
-            "from_name": "support",
+            "from_name": "behavior",
+            "to_name": "image",
+            "type": "choices",
+            "parentID": "r1",
+            "value": {"choices": ["resting"]}
+          },
+          {
+            "from_name": "substrate",
             "to_name": "image",
             "type": "choices",
             "parentID": "r1",
@@ -80,6 +87,20 @@
             "type": "choices",
             "parentID": "r2",
             "value": {"choices": ["unreadable"]}
+          },
+          {
+            "from_name": "specie",
+            "to_name": "image",
+            "type": "choices",
+            "parentID": "r2",
+            "value": {"choices": ["unsure"]}
+          },
+          {
+            "from_name": "behavior",
+            "to_name": "image",
+            "type": "choices",
+            "parentID": "r2",
+            "value": {"choices": ["preening"]}
           }
         ]
       }

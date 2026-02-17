@@ -1,47 +1,27 @@
-<View style="display: flex; align-items: flex-start; gap: 16px;">
+<View style="display: flex; align-items: flex-start; gap: 12px;">
   <View style="flex: 1 1 auto; min-width: 0;">
-    <Header value="Bird Annotation &amp; Classification"/>
     <Image name="image" value="$image" zoom="true"/>
     <RectangleLabels name="bird_bbox" toName="image">
       <Label value="Bird" background="#34A853" hotkey="1"/>
     </RectangleLabels>
   </View>
 
-  <View style="width: 36%; min-width: 380px;">
-    <Header value="Image-Level Usability"/>
-    <Choices
-      name="image_status"
-      toName="image"
-      required="true"
-      choice="single-radio"
-      showInline="true">
+  <View style="width: 34%; min-width: 340px;">
+    <Header value="Image"/>
+    <Choices name="image_status" toName="image" required="true" choice="single-radio" showInline="true">
       <Choice value="has_usable_birds" hotkey="a"/>
       <Choice value="no_usable_birds" hotkey="q"/>
     </Choices>
 
     <View visibleWhen="region-selected" whenTagName="bird_bbox">
-      <Header value="Per-Bird Core"/>
-      <Choices
-        name="readability"
-        toName="image"
-        perRegion="true"
-        whenTagName="bird_bbox"
-        choice="single-radio"
-        required="true"
-        showInline="true">
+      <Header value="Bird"/>
+      <Choices name="readability" toName="image" perRegion="true" whenTagName="bird_bbox" required="true" choice="single-radio" showInline="true">
         <Choice value="readable" selected="true" hotkey="z"/>
         <Choice value="occluded" hotkey="x"/>
         <Choice value="unreadable" hotkey="c"/>
       </Choices>
 
-      <Choices
-        name="specie"
-        toName="image"
-        perRegion="true"
-        whenTagName="bird_bbox"
-        choice="single-radio"
-        required="true"
-        showInline="true">
+      <Choices name="specie" toName="image" perRegion="true" whenTagName="bird_bbox" required="true" choice="single-radio" showInline="true">
         <Choice value="correct" selected="true" hotkey="s"/>
         <Choice value="incorrect" hotkey="d"/>
         <Choice value="unsure" hotkey="f"/>
@@ -49,15 +29,7 @@
 
       <View visibleWhen="choice-unselected" whenTagName="readability" whenChoiceValue="unreadable">
         <View visibleWhen="choice-unselected" whenTagName="specie" whenChoiceValue="incorrect">
-          <Header value="Per-Bird Context"/>
-          <Choices
-            name="behavior"
-            toName="image"
-            perRegion="true"
-            whenTagName="bird_bbox"
-            choice="single-radio"
-            required="true"
-            showInline="true">
+          <Choices name="behavior" toName="image" perRegion="true" whenTagName="bird_bbox" required="true" choice="single-radio" showInline="true">
             <Choice value="flying" hotkey="e"/>
             <Choice value="foraging" hotkey="r"/>
             <Choice value="resting" hotkey="t"/>
@@ -67,14 +39,7 @@
             <Choice value="unsure" hotkey="o"/>
           </Choices>
 
-          <Choices
-            name="substrate"
-            toName="image"
-            perRegion="true"
-            whenTagName="bird_bbox"
-            choice="single-radio"
-            required="true"
-            showInline="true">
+          <Choices name="substrate" toName="image" perRegion="true" whenTagName="bird_bbox" required="true" choice="single-radio" showInline="true">
             <Choice value="ground" hotkey="g"/>
             <Choice value="water" hotkey="w"/>
             <Choice value="air" hotkey="v"/>
@@ -83,15 +48,7 @@
 
           <View visibleWhen="choice-selected" whenTagName="behavior" whenChoiceValue="resting,backresting">
             <View visibleWhen="choice-selected" whenTagName="substrate" whenChoiceValue="ground,water">
-              <Header value="Legs (Resting on Ground/Water)"/>
-              <Choices
-                name="legs"
-                toName="image"
-                perRegion="true"
-                whenTagName="bird_bbox"
-                choice="single-radio"
-                required="true"
-                showInline="true">
+              <Choices name="legs" toName="image" perRegion="true" whenTagName="bird_bbox" required="true" choice="single-radio" showInline="true">
                 <Choice value="one" hotkey="1"/>
                 <Choice value="two" hotkey="2"/>
                 <Choice value="unsure" selected="true" hotkey="3"/>

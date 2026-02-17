@@ -23,11 +23,11 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from birdsys.paths import ensure_layout, next_version_dir
 from birdsys.training.attributes import (
-    ACTIVITY_TO_ID,
+    BEHAVIOR_TO_ID,
     LEGS_TO_ID,
     READABILITY_TO_ID,
-    RESTING_BACK_TO_ID,
-    SUPPORT_TO_ID,
+    SPECIE_TO_ID,
+    SUBSTRATE_TO_ID,
     compute_head_masks,
     encode_labels,
 )
@@ -36,10 +36,10 @@ from birdsys.training.models import MultiHeadAttributeModel
 
 
 HEAD_CLASS_COUNTS = {
-    "readability": 2,
-    "activity": 3,
-    "support": 3,
-    "resting_back": 2,
+    "readability": 3,
+    "specie": 3,
+    "behavior": 7,
+    "substrate": 4,
     "legs": 3,
 }
 
@@ -79,27 +79,29 @@ class BirdAttributeDataset(Dataset):
 
         labels = encode_labels(
             readability=str(row.get("readability") or ""),
-            activity=str(row.get("activity") or ""),
-            support=str(row.get("support") or ""),
-            resting_back=str(row.get("resting_back") or ""),
+            specie=str(row.get("specie") or ""),
+            behavior=str(row.get("behavior") or ""),
+            substrate=str(row.get("substrate") or ""),
             legs=str(row.get("legs") or ""),
         )
         masks = compute_head_masks(
             readability=str(row.get("readability") or ""),
-            activity=str(row.get("activity") or ""),
+            specie=str(row.get("specie") or ""),
+            behavior=str(row.get("behavior") or ""),
+            substrate=str(row.get("substrate") or ""),
         )
 
         return {
             "image": x,
             "readability_label": torch.tensor(labels["readability"] if labels["readability"] is not None else -1),
-            "activity_label": torch.tensor(labels["activity"] if labels["activity"] is not None else -1),
-            "support_label": torch.tensor(labels["support"] if labels["support"] is not None else -1),
-            "resting_back_label": torch.tensor(labels["resting_back"] if labels["resting_back"] is not None else -1),
+            "specie_label": torch.tensor(labels["specie"] if labels["specie"] is not None else -1),
+            "behavior_label": torch.tensor(labels["behavior"] if labels["behavior"] is not None else -1),
+            "substrate_label": torch.tensor(labels["substrate"] if labels["substrate"] is not None else -1),
             "legs_label": torch.tensor(labels["legs"] if labels["legs"] is not None else -1),
             "readability_mask": torch.tensor(masks.readability),
-            "activity_mask": torch.tensor(masks.activity),
-            "support_mask": torch.tensor(masks.support),
-            "resting_back_mask": torch.tensor(masks.resting_back),
+            "specie_mask": torch.tensor(masks.specie),
+            "behavior_mask": torch.tensor(masks.behavior),
+            "substrate_mask": torch.tensor(masks.substrate),
             "legs_mask": torch.tensor(masks.legs),
         }
 
@@ -146,9 +148,9 @@ def sanitize_df(df: pd.DataFrame) -> pd.DataFrame:
     required = [
         "crop_path",
         "readability",
-        "activity",
-        "support",
-        "resting_back",
+        "specie",
+        "behavior",
+        "substrate",
         "legs",
     ]
     missing = [c for c in required if c not in df.columns]
@@ -166,7 +168,7 @@ def compute_masked_loss(
     criterion: nn.Module,
 ) -> torch.Tensor:
     total = torch.tensor(0.0, device=next(iter(logits.values())).device)
-    for head in ["readability", "activity", "support", "resting_back", "legs"]:
+    for head in ["readability", "specie", "behavior", "substrate", "legs"]:
         labels = batch[f"{head}_label"]
         mask = batch[f"{head}_mask"].bool()
         if mask.any():
@@ -217,7 +219,7 @@ def evaluate(
     model.eval()
     storage: dict[str, dict[str, list[int]]] = {
         head: {"true": [], "pred": []}
-        for head in ["readability", "activity", "support", "resting_back", "legs"]
+        for head in ["readability", "specie", "behavior", "substrate", "legs"]
     }
 
     with torch.no_grad():
@@ -369,9 +371,9 @@ def main() -> int:
             "pretrained": not args.no_pretrained,
             "label_maps": {
                 "readability": READABILITY_TO_ID,
-                "activity": ACTIVITY_TO_ID,
-                "support": SUPPORT_TO_ID,
-                "resting_back": RESTING_BACK_TO_ID,
+                "specie": SPECIE_TO_ID,
+                "behavior": BEHAVIOR_TO_ID,
+                "substrate": SUBSTRATE_TO_ID,
                 "legs": LEGS_TO_ID,
             },
         },

@@ -55,35 +55,68 @@ def pick_images(all_paths: list[pathlib.Path], samples: int, mode: str, seed: in
     return rng.sample(all_paths, samples)
 
 
-def softmax3(a: float, b: float, c: float) -> tuple[float, float, float]:
-    vals = [a, b, c]
+def softmax(vals: list[float]) -> list[float]:
     m = max(vals)
     exps = [pow(2.718281828, v - m) for v in vals]
     s = sum(exps)
-    return exps[0] / s, exps[1] / s, exps[2] / s
+    return [v / s for v in exps]
 
 
 def heuristic_attributes(det_conf: float, bbox_h: float) -> dict[str, object]:
-    readable = min(0.99, max(0.05, 0.55 + 0.35 * det_conf))
-    unreadable = 1.0 - readable
+    readable = min(0.95, max(0.05, 0.35 + 0.55 * det_conf))
+    unreadable = max(0.01, 1.0 - readable - 0.15)
+    occluded = max(0.01, 1.0 - readable - unreadable)
+    total_r = readable + occluded + unreadable
+    readable, occluded, unreadable = readable / total_r, occluded / total_r, unreadable / total_r
 
-    stand_logit = 0.25 + bbox_h * 0.8
-    fly_logit = 0.15 + (1.0 - bbox_h) * 0.5
-    forage_logit = 0.10 + bbox_h * 0.3
-    flying_p, foraging_p, standing_p = softmax3(fly_logit, forage_logit, stand_logit)
+    correct = min(0.95, max(0.10, 0.35 + 0.55 * det_conf))
+    incorrect = max(0.05, 0.15 - 0.10 * det_conf)
+    unsure_specie = max(0.05, 1.0 - correct - incorrect)
+    total_s = correct + incorrect + unsure_specie
+    correct, incorrect, unsure_specie = correct / total_s, incorrect / total_s, unsure_specie / total_s
 
-    ground_p, water_p, air_p = softmax3(0.55 + bbox_h, 0.2 + bbox_h * 0.6, 0.4 + (1.0 - bbox_h))
+    behavior_probs = softmax(
+        [
+            0.25 + (1.0 - bbox_h) * 0.6,  # flying
+            0.20 + bbox_h * 0.35,  # foraging
+            0.25 + bbox_h * 0.75,  # resting
+            0.15 + bbox_h * 0.50,  # backresting
+            0.20 + bbox_h * 0.25,  # preening
+            0.05 + (1.0 - bbox_h) * 0.20,  # display
+            0.10 + (1.0 - det_conf) * 0.40,  # unsure
+        ]
+    )
 
-    one_p, two_p, unsure_p = softmax3(0.35, 0.55, 0.15 + (1.0 - det_conf))
-    rest_no = min(0.95, 0.6 + 0.2 * det_conf)
-    rest_yes = 1.0 - rest_no
+    substrate_probs = softmax(
+        [
+            0.55 + bbox_h,  # ground
+            0.2 + bbox_h * 0.6,  # water
+            0.4 + (1.0 - bbox_h),  # air
+            0.15 + (1.0 - det_conf) * 0.5,  # unsure
+        ]
+    )
+
+    one_p, two_p, unsure_p = softmax([0.35, 0.55, 0.15 + (1.0 - det_conf)])
 
     return {
-        "readability_probs": {"readable": readable, "unreadable": unreadable},
-        "activity_probs": {"flying": flying_p, "foraging": foraging_p, "standing": standing_p},
-        "support_probs": {"ground": ground_p, "water": water_p, "air": air_p},
+        "readability_probs": {"readable": readable, "occluded": occluded, "unreadable": unreadable},
+        "specie_probs": {"correct": correct, "incorrect": incorrect, "unsure": unsure_specie},
+        "behavior_probs": {
+            "flying": behavior_probs[0],
+            "foraging": behavior_probs[1],
+            "resting": behavior_probs[2],
+            "backresting": behavior_probs[3],
+            "preening": behavior_probs[4],
+            "display": behavior_probs[5],
+            "unsure": behavior_probs[6],
+        },
+        "substrate_probs": {
+            "ground": substrate_probs[0],
+            "water": substrate_probs[1],
+            "air": substrate_probs[2],
+            "unsure": substrate_probs[3],
+        },
         "legs_probs": {"one": one_p, "two": two_p, "unsure": unsure_p},
-        "resting_back_probs": {"yes": rest_yes, "no": rest_no},
     }
 
 

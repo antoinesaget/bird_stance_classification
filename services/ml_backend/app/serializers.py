@@ -62,18 +62,18 @@ def to_label_studio_prediction(
         results.append(
             {
                 "id": region_id,
-                "from_name": "activity",
+                "from_name": "specie",
                 "to_name": "image",
                 "type": "choices",
                 "parentID": region_id,
-                "score": float(attr.activity_conf),
+                "score": float(attr.specie_conf),
                 "value": {
                     "x": x,
                     "y": y,
                     "width": w,
                     "height": h,
                     "rotation": 0,
-                    "choices": [attr.activity],
+                    "choices": [attr.specie],
                 },
             }
         )
@@ -81,18 +81,37 @@ def to_label_studio_prediction(
         results.append(
             {
                 "id": region_id,
-                "from_name": "support",
+                "from_name": "behavior",
                 "to_name": "image",
                 "type": "choices",
                 "parentID": region_id,
-                "score": float(attr.support_conf),
+                "score": float(attr.behavior_conf),
                 "value": {
                     "x": x,
                     "y": y,
                     "width": w,
                     "height": h,
                     "rotation": 0,
-                    "choices": [attr.support],
+                    "choices": [attr.behavior],
+                },
+            }
+        )
+
+        results.append(
+            {
+                "id": region_id,
+                "from_name": "substrate",
+                "to_name": "image",
+                "type": "choices",
+                "parentID": region_id,
+                "score": float(attr.substrate_conf),
+                "value": {
+                    "x": x,
+                    "y": y,
+                    "width": w,
+                    "height": h,
+                    "rotation": 0,
+                    "choices": [attr.substrate],
                 },
             }
         )
@@ -112,25 +131,6 @@ def to_label_studio_prediction(
                     "height": h,
                     "rotation": 0,
                     "choices": [attr.legs],
-                },
-            }
-        )
-
-        results.append(
-            {
-                "id": region_id,
-                "from_name": "resting_back",
-                "to_name": "image",
-                "type": "choices",
-                "parentID": region_id,
-                "score": float(attr.resting_back_conf),
-                "value": {
-                    "x": x,
-                    "y": y,
-                    "width": w,
-                    "height": h,
-                    "rotation": 0,
-                    "choices": [attr.resting_back],
                 },
             }
         )
