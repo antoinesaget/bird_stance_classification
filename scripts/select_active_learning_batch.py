@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import pathlib
 import random
@@ -19,7 +20,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def diversity_score(image_id: str) -> float:
-    return (abs(hash(image_id)) % 1000) / 1000.0
+    digest = hashlib.sha1(image_id.encode("utf-8")).hexdigest()
+    return (int(digest[:8], 16) % 1000) / 1000.0
 
 
 def row_scores(row: pd.Series) -> dict[str, float]:
@@ -94,7 +96,6 @@ def main() -> int:
     top_df = score_df.head(top_count).copy()
     remaining = score_df.iloc[top_count:].copy()
 
-    rng = random.Random(args.seed)
     random_df = remaining.sample(n=random_count, random_state=args.seed) if random_count > 0 and not remaining.empty else remaining.head(0)
 
     selected_df = pd.concat([top_df, random_df], ignore_index=True)
