@@ -141,6 +141,12 @@ def extract_task_rows(
 
         if item_type == "choices":
             parent_id = item.get("parentID") or item.get("parent_id")
+            if not parent_id:
+                # Some Label Studio versions serialize per-region choices with the same
+                # id as the region instead of parentID.
+                candidate_id = item.get("id")
+                if candidate_id in region_state:
+                    parent_id = candidate_id
             if parent_id and parent_id in region_state:
                 choice = first_choice(item)
                 if from_name in {"readability", "activity", "support", "legs", "resting_back"}:

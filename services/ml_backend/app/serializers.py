@@ -17,6 +17,10 @@ def to_label_studio_prediction(
 
     for idx, (det, attr) in enumerate(zip(detections, attributes)):
         region_id = f"r_{task_id}_{idx:03d}"
+        x = det.x * 100.0
+        y = det.y * 100.0
+        w = det.w * 100.0
+        h = det.h * 100.0
 
         results.append(
             {
@@ -26,10 +30,10 @@ def to_label_studio_prediction(
                 "type": "rectanglelabels",
                 "score": float(det.score),
                 "value": {
-                    "x": det.x * 100.0,
-                    "y": det.y * 100.0,
-                    "width": det.w * 100.0,
-                    "height": det.h * 100.0,
+                    "x": x,
+                    "y": y,
+                    "width": w,
+                    "height": h,
                     "rotation": 0,
                     "rectanglelabels": [det.label],
                 },
@@ -38,61 +42,96 @@ def to_label_studio_prediction(
 
         results.append(
             {
-                "id": f"{region_id}_readability",
+                "id": region_id,
                 "from_name": "readability",
                 "to_name": "image",
                 "type": "choices",
                 "parentID": region_id,
                 "score": float(attr.readability_conf),
-                "value": {"choices": [attr.readability]},
+                "value": {
+                    "x": x,
+                    "y": y,
+                    "width": w,
+                    "height": h,
+                    "rotation": 0,
+                    "choices": [attr.readability],
+                },
             }
         )
 
         results.append(
             {
-                "id": f"{region_id}_activity",
+                "id": region_id,
                 "from_name": "activity",
                 "to_name": "image",
                 "type": "choices",
                 "parentID": region_id,
                 "score": float(attr.activity_conf),
-                "value": {"choices": [attr.activity]},
+                "value": {
+                    "x": x,
+                    "y": y,
+                    "width": w,
+                    "height": h,
+                    "rotation": 0,
+                    "choices": [attr.activity],
+                },
             }
         )
 
         results.append(
             {
-                "id": f"{region_id}_support",
+                "id": region_id,
                 "from_name": "support",
                 "to_name": "image",
                 "type": "choices",
                 "parentID": region_id,
                 "score": float(attr.support_conf),
-                "value": {"choices": [attr.support]},
+                "value": {
+                    "x": x,
+                    "y": y,
+                    "width": w,
+                    "height": h,
+                    "rotation": 0,
+                    "choices": [attr.support],
+                },
             }
         )
 
         results.append(
             {
-                "id": f"{region_id}_legs",
+                "id": region_id,
                 "from_name": "legs",
                 "to_name": "image",
                 "type": "choices",
                 "parentID": region_id,
                 "score": float(attr.legs_conf),
-                "value": {"choices": [attr.legs]},
+                "value": {
+                    "x": x,
+                    "y": y,
+                    "width": w,
+                    "height": h,
+                    "rotation": 0,
+                    "choices": [attr.legs],
+                },
             }
         )
 
         results.append(
             {
-                "id": f"{region_id}_resting_back",
+                "id": region_id,
                 "from_name": "resting_back",
                 "to_name": "image",
                 "type": "choices",
                 "parentID": region_id,
                 "score": float(attr.resting_back_conf),
-                "value": {"choices": [attr.resting_back]},
+                "value": {
+                    "x": x,
+                    "y": y,
+                    "width": w,
+                    "height": h,
+                    "rotation": 0,
+                    "choices": [attr.resting_back],
+                },
             }
         )
 
