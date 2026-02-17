@@ -1,0 +1,50 @@
+# OS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+.venv-*/
+
+# Local runtime/cache
+/tmp/
+*.log
+
+# Large local datasets and experiment outputs
+/data/
+/scraped_images/
+/epxeriment_results/
+ML__*.csv
+
+# Model and heavy ML artifacts
+*.pt
+*.pth
+*.onnx
+
+# Mac/Linux metadata
+.AppleDouble
+.LSOverride

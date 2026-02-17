@@ -1,0 +1,10 @@
+paths:
+  data_root: /data/birds_project
+
+models:
+  model_a_weights: /Users/antoine/bird_leg/yolo11m.pt
+  model_b_checkpoint: null
+  model_c_checkpoint: null
+
+label_studio:
+  url: http://localhost:8080

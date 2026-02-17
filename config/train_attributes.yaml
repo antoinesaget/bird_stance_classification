@@ -1,0 +1,10 @@
+backbone: convnextv2_small
+image_size: 384
+batch_size: 16
+num_workers: 4
+head_epochs: 1
+finetune_epochs: 1
+head_lr: 1.0e-3
+finetune_lr: 1.0e-4
+weight_decay: 1.0e-4
+device: auto

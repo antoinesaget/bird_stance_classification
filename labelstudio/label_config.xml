@@ -1,0 +1,89 @@
+<View>
+  <Header value="Bird Annotation &amp; Classification"/>
+  <Image name="image" value="$image" zoom="true"/>
+
+  <Choices
+    name="image_status"
+    toName="image"
+    required="true"
+    choice="single-radio"
+    showInline="true">
+    <Choice value="has_usable_birds"/>
+    <Choice value="no_usable_birds"/>
+  </Choices>
+
+  <RectangleLabels name="bird_bbox" toName="image">
+    <Label value="Bird" background="#34A853"/>
+  </RectangleLabels>
+
+  <Choices
+    name="readability"
+    toName="image"
+    perRegion="true"
+    whenTagName="bird_bbox"
+    choice="single-radio"
+    required="true"
+    showInline="true">
+    <Choice value="readable" selected="true"/>
+    <Choice value="unreadable"/>
+  </Choices>
+
+  <Choices
+    name="activity"
+    toName="image"
+    perRegion="true"
+    visibleWhen="choice-selected"
+    whenChoiceValue="readable"
+    whenTagName="readability"
+    choice="single-radio"
+    required="true"
+    showInline="true">
+    <Choice value="flying"/>
+    <Choice value="foraging"/>
+    <Choice value="standing"/>
+  </Choices>
+
+  <Choices
+    name="support"
+    toName="image"
+    perRegion="true"
+    visibleWhen="choice-selected"
+    whenChoiceValue="readable"
+    whenTagName="readability"
+    choice="single-radio"
+    required="true"
+    showInline="true">
+    <Choice value="ground"/>
+    <Choice value="water"/>
+    <Choice value="air"/>
+  </Choices>
+
+  <Choices
+    name="legs"
+    toName="image"
+    perRegion="true"
+    visibleWhen="choice-selected"
+    whenChoiceValue="standing"
+    whenTagName="activity"
+    choice="single-radio"
+    required="true"
+    showInline="true">
+    <Choice value="one"/>
+    <Choice value="two"/>
+    <Choice value="unsure"/>
+  </Choices>
+
+  <Choices
+    name="resting_back"
+    toName="image"
+    perRegion="true"
+    visibleWhen="choice-selected"
+    whenChoiceValue="standing"
+    whenTagName="activity"
+    choice="single-radio"
+    required="true"
+    showInline="true">
+    <Choice value="yes"/>
+    <Choice value="no" selected="true"/>
+  </Choices>
+</View>

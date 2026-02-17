@@ -1,0 +1,88 @@
+[
+  {
+    "id": 1,
+    "data": {"image": "/tmp/00001.jpg"},
+    "annotations": [
+      {
+        "result": [
+          {
+            "from_name": "image_status",
+            "to_name": "image",
+            "type": "choices",
+            "value": {"choices": ["has_usable_birds"]}
+          },
+          {
+            "id": "r1",
+            "from_name": "bird_bbox",
+            "to_name": "image",
+            "type": "rectanglelabels",
+            "value": {
+              "x": 10,
+              "y": 20,
+              "width": 20,
+              "height": 15,
+              "rectanglelabels": ["Bird"]
+            }
+          },
+          {
+            "from_name": "readability",
+            "to_name": "image",
+            "type": "choices",
+            "parentID": "r1",
+            "value": {"choices": ["readable"]}
+          },
+          {
+            "from_name": "activity",
+            "to_name": "image",
+            "type": "choices",
+            "parentID": "r1",
+            "value": {"choices": ["standing"]}
+          },
+          {
+            "from_name": "support",
+            "to_name": "image",
+            "type": "choices",
+            "parentID": "r1",
+            "value": {"choices": ["ground"]}
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": 2,
+    "data": {"image": "/tmp/00002.jpg"},
+    "annotations": [
+      {
+        "result": [
+          {
+            "from_name": "image_status",
+            "to_name": "image",
+            "type": "choices",
+            "value": {"choices": ["no_usable_birds"]}
+          },
+          {
+            "id": "r2",
+            "from_name": "bird_bbox",
+            "to_name": "image",
+            "type": "rectanglelabels",
+            "value": {
+              "x": 30,
+              "y": 40,
+              "width": 10,
+              "height": 10,
+              "rectanglelabels": ["Bird"]
+            }
+          },
+          {
+            "from_name": "readability",
+            "to_name": "image",
+            "type": "choices",
+            "parentID": "r2",
+            "value": {"choices": ["unreadable"]}
+          }
+        ]
+      }
+    ]
+  }
+]
