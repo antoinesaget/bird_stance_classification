@@ -36,7 +36,7 @@
     whenChoiceValue="readable"
     whenTagName="readability"
     choice="single-radio"
-    required="true"
+    required="false"
     showInline="true">
     <Choice value="flying"/>
     <Choice value="foraging"/>
@@ -51,7 +51,7 @@
     whenChoiceValue="readable"
     whenTagName="readability"
     choice="single-radio"
-    required="true"
+    required="false"
     showInline="true">
     <Choice value="ground"/>
     <Choice value="water"/>
@@ -66,7 +66,7 @@
     whenChoiceValue="standing"
     whenTagName="activity"
     choice="single-radio"
-    required="true"
+    required="false"
     showInline="true">
     <Choice value="one"/>
     <Choice value="two"/>
@@ -81,7 +81,7 @@
     whenChoiceValue="standing"
     whenTagName="activity"
     choice="single-radio"
-    required="true"
+    required="false"
     showInline="true">
     <Choice value="yes"/>
     <Choice value="no" selected="true"/>

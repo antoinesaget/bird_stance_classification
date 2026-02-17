@@ -20,6 +20,8 @@ from .predictors.model_b_attributes import AttributePredictor
 from .predictors.model_c_image_status import ImageStatusPredictor
 from .serializers import to_label_studio_prediction
 
+MODEL_VERSION = "birdsys-backend-v0.1"
+
 
 class PredictRequest(BaseModel):
     tasks: list[dict[str, Any]] | None = None
@@ -63,6 +65,22 @@ def health() -> dict[str, Any]:
         "model_b_checkpoint": str(env.model_b_checkpoint) if env.model_b_checkpoint else None,
         "model_c_checkpoint": str(env.model_c_checkpoint) if env.model_c_checkpoint else None,
     }
+
+
+@app.post("/setup")
+def setup(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    # Label Studio validates ML backends by calling /setup after /health.
+    return {
+        "status": "UP",
+        "model_version": MODEL_VERSION,
+        "model_a_loaded": model_a is not None,
+    }
+
+
+@app.post("/validate")
+def validate(payload: dict[str, Any]) -> dict[str, Any]:
+    # Optional endpoint used by some ML backend flows.
+    return {"valid": True}
 
 
 def _task_image_path(task: dict[str, Any]) -> pathlib.Path:
@@ -127,7 +145,7 @@ def predict(payload: dict[str, Any]) -> dict[str, Any]:
                 attributes=attrs,
                 image_status=image_status_label,
                 image_status_conf=image_status_conf,
-                model_version="birdsys-backend-v0.1",
+                model_version=MODEL_VERSION,
             )
             predictions.append(pred)
         except Exception as exc:  # noqa: BLE001
@@ -135,7 +153,7 @@ def predict(payload: dict[str, Any]) -> dict[str, Any]:
             predictions.append(
                 {
                     "task": task_id,
-                    "model_version": "birdsys-backend-v0.1",
+                    "model_version": MODEL_VERSION,
                     "score": 0.0,
                     "result": [],
                     "error": str(exc),
