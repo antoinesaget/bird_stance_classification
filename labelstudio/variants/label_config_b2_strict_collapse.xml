@@ -29,9 +29,11 @@
             <Choice value="unsure" hotkey="f"/>
           </Choices>
         </Panel>
+      </Collapse>
 
-        <View visibleWhen="choice-unselected" whenTagName="readability" whenChoiceValue="unreadable">
-          <View visibleWhen="choice-unselected" whenTagName="specie" whenChoiceValue="incorrect">
+      <View visibleWhen="choice-unselected" whenTagName="readability" whenChoiceValue="unreadable">
+        <View visibleWhen="choice-unselected" whenTagName="specie" whenChoiceValue="incorrect">
+          <Collapse accordion="false">
             <Panel value="Context" open="true">
               <Choices name="behavior" toName="image" perRegion="true" whenTagName="bird_bbox" required="true" choice="single-radio" showInline="true">
                 <Choice value="flying" hotkey="e"/>
@@ -50,9 +52,11 @@
                 <Choice value="unsure" hotkey="b"/>
               </Choices>
             </Panel>
+          </Collapse>
 
-            <View visibleWhen="choice-selected" whenTagName="behavior" whenChoiceValue="resting,backresting">
-              <View visibleWhen="choice-selected" whenTagName="substrate" whenChoiceValue="ground,water">
+          <View visibleWhen="choice-selected" whenTagName="behavior" whenChoiceValue="resting,backresting">
+            <View visibleWhen="choice-selected" whenTagName="substrate" whenChoiceValue="ground,water">
+              <Collapse accordion="false">
                 <Panel value="Legs" open="true">
                   <Choices name="legs" toName="image" perRegion="true" whenTagName="bird_bbox" required="true" choice="single-radio" showInline="true">
                     <Choice value="one" hotkey="1"/>
@@ -60,11 +64,11 @@
                     <Choice value="unsure" selected="true" hotkey="3"/>
                   </Choices>
                 </Panel>
-              </View>
+              </Collapse>
             </View>
           </View>
         </View>
-      </Collapse>
+      </View>
     </View>
   </View>
 </View>
