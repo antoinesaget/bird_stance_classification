@@ -43,13 +43,13 @@ services:
 
   ml-backend:
     build:
-      context: /Users/antoine/bird_leg
+      context: ..
       dockerfile: services/ml_backend/Dockerfile
     container_name: birds-ml-backend
     restart: unless-stopped
     environment:
       BIRDS_DATA_ROOT: /data/birds_project
-      MODEL_A_WEIGHTS: ${MODEL_A_WEIGHTS:-/data/birds_project/models/detector/yolo11m_pretrained/weights.pt}
+      MODEL_A_WEIGHTS: /models/model_a/weights.pt
       MODEL_B_CHECKPOINT: ${MODEL_B_CHECKPOINT:-}
       MODEL_C_CHECKPOINT: ${MODEL_C_CHECKPOINT:-}
       BIRDS_LOG_LEVEL: INFO
@@ -57,6 +57,7 @@ services:
       - "9090:9090"
     volumes:
       - ${BIRDS_DATA_ROOT:-/data/birds_project}:/data/birds_project
+      - ${MODEL_A_WEIGHTS}:/models/model_a/weights.pt:ro
 
 volumes:
   labelstudio_pgdata:

@@ -28,11 +28,21 @@ class ProjectFileConfig:
     model_c_checkpoint: Path | None = None
 
 
+def _safe_expand_path(raw: str) -> Path:
+    path = Path(raw).expanduser()
+    try:
+        return path.resolve()
+    except OSError:
+        if path.is_absolute():
+            return path
+        return (Path.cwd() / path).absolute()
+
+
 def _get_env_path(name: str, default: str | None = None) -> Path | None:
     value = os.getenv(name, default)
     if value is None or value.strip() == "":
         return None
-    return Path(value).expanduser().resolve()
+    return _safe_expand_path(value)
 
 
 def _load_project_file_config(config_path: Path | None) -> ProjectFileConfig:
@@ -49,7 +59,7 @@ def _load_project_file_config(config_path: Path | None) -> ProjectFileConfig:
         text = str(value).strip()
         if not text:
             return None
-        return Path(text).expanduser().resolve()
+        return _safe_expand_path(text)
 
     return ProjectFileConfig(
         data_root=_as_path(paths.get("data_root")),

@@ -54,6 +54,15 @@ def healthz() -> dict[str, Any]:
 
 
 def _task_image_path(task: dict[str, Any]) -> pathlib.Path:
+    def _safe_path(value: str) -> pathlib.Path:
+        path = pathlib.Path(value).expanduser()
+        try:
+            return path.resolve()
+        except OSError:
+            if path.is_absolute():
+                return path
+            return (pathlib.Path.cwd() / path).absolute()
+
     data = task.get("data") or {}
     candidates = [data.get("image"), data.get("filepath"), data.get("path"), task.get("image")]
     for item in candidates:
@@ -66,12 +75,12 @@ def _task_image_path(task: dict[str, Any]) -> pathlib.Path:
             query = urllib.parse.parse_qs(parsed.query)
             local = query.get("d", [""])[0]
             if local:
-                return pathlib.Path(local).expanduser().resolve()
+                return _safe_path(local)
 
         if value.startswith("http://") or value.startswith("https://"):
             continue
 
-        return pathlib.Path(value).expanduser().resolve()
+        return _safe_path(value)
 
     raise ValueError("Task does not include a usable local image path")
 

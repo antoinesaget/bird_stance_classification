@@ -20,9 +20,11 @@ If `/data` is unavailable (read-only or restricted), use a local override such a
 - `BIRDS_DATA_ROOT` (default: `/data/birds_project`)
 - `LABEL_STUDIO_URL` (example: `http://localhost:8080`)
 - `LABEL_STUDIO_API_TOKEN` (Label Studio personal token)
-- `MODEL_A_WEIGHTS` (YOLO checkpoint path, example: `/Users/antoine/bird_leg/yolo11m.pt`)
+- `MODEL_A_WEIGHTS` (host checkpoint path for local scripts, example: `/Users/antoine/bird_leg/yolo11m.pt`)
 - `MODEL_B_CHECKPOINT` (Model B checkpoint path)
 - `MODEL_C_CHECKPOINT` (Model C checkpoint path)
+
+Compose binds `MODEL_A_WEIGHTS` into the ML backend container at `/models/model_a/weights.pt`.
 
 ## Toolchain Requirements
 - Docker + Docker Compose v2
@@ -45,7 +47,7 @@ Expected: `Python 3.11.x`
 
 ### Compose syntax
 ```bash
-docker compose -f /Users/antoine/bird_leg/deploy/docker-compose.yml config
+docker compose --env-file /Users/antoine/bird_leg/.env -f /Users/antoine/bird_leg/deploy/docker-compose.yml config
 ```
 Expected: valid rendered compose config
 

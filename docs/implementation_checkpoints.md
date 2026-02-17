@@ -6,9 +6,9 @@
   - `/Users/antoine/bird_leg/.env.example`
   - `/Users/antoine/bird_leg/pyproject.toml`
   - `/Users/antoine/bird_leg/Makefile`
-  - `/Users/antoine/bird_leg/uv.lock` (offline placeholder; regenerate with `uv lock`)
+  - `/Users/antoine/bird_leg/uv.lock`
 - Verified:
-  - `docker compose ... config` passes
+  - `docker compose --env-file /Users/antoine/bird_leg/.env ... config` passes
   - `ENVIRONMENT.md` includes required env vars and checks
 
 ## C1 Scaffold
