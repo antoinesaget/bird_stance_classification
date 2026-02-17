@@ -1,68 +1,93 @@
-<View style="display: flex; align-items: flex-start; gap: 16px;">
+<View style="display: flex; align-items: flex-start; gap: 12px;">
+  <Style>
+    .birdsys-right { padding-top: 2px; }
+    .birdsys-section { margin: 2px 0 6px 0; }
+    .birdsys-subtitle { margin: 0 0 2px 0; }
+    .birdsys-collapse { margin: 2px 0 6px 0; }
+  </Style>
+
   <View style="flex: 1 1 auto; min-width: 0;">
-    <Header value="Bird Annotation &amp; Classification (Collapse UX)"/>
+    <Header value="Bird Annotation &amp; Classification (Collapse UX)" size="5" style="margin: 0 0 6px 0;"/>
     <Image name="image" value="$image" zoom="true"/>
     <RectangleLabels name="bird_bbox" toName="image">
       <Label value="Bird" background="#34A853" hotkey="1"/>
     </RectangleLabels>
   </View>
 
-  <View style="width: 38%; min-width: 400px;">
-    <Header value="Image-Level Usability"/>
-    <Choices name="image_status" toName="image" required="true" choice="single-radio" showInline="true">
-      <Choice value="has_usable_birds" hotkey="a"/>
-      <Choice value="no_usable_birds" hotkey="q"/>
-    </Choices>
+  <View className="birdsys-right" style="width: 36%; min-width: 360px;">
+    <View className="birdsys-section">
+      <Header value="Image-Level" size="6" style="margin: 0 0 2px 0; color: #667085;"/>
+      <Header value="Image status" size="6" style="margin: 0 0 2px 0; color: #98A2B3; font-weight: 500;"/>
+      <Choices name="image_status" toName="image" required="true" choice="single-radio" showInline="true" layout="inline">
+        <Choice value="has_usable_birds" hotkey="a"/>
+        <Choice value="no_usable_birds" hotkey="q"/>
+      </Choices>
+    </View>
 
     <View visibleWhen="region-selected" whenTagName="bird_bbox">
-      <Collapse accordion="false">
-        <Panel value="Core (Always First)" open="true">
-          <Choices name="readability" toName="image" perRegion="true" whenTagName="bird_bbox" required="true" choice="single-radio" showInline="true">
-            <Choice value="readable" selected="true" hotkey="z"/>
-            <Choice value="occluded" hotkey="x"/>
-            <Choice value="unreadable" hotkey="c"/>
-          </Choices>
+      <Collapse accordion="false" className="birdsys-collapse">
+        <Panel value="Core" open="true">
+          <View className="birdsys-section">
+            <Header value="Readability" size="6" style="margin: 0 0 2px 0; color: #98A2B3; font-weight: 500;"/>
+            <Choices name="readability" toName="image" perRegion="true" whenTagName="bird_bbox" required="true" choice="single-radio" showInline="true" layout="inline">
+              <Choice value="readable" selected="true" hotkey="z"/>
+              <Choice value="occluded" hotkey="x"/>
+              <Choice value="unreadable" hotkey="c"/>
+            </Choices>
+          </View>
 
-          <Choices name="specie" toName="image" perRegion="true" whenTagName="bird_bbox" required="true" choice="single-radio" showInline="true">
-            <Choice value="correct" selected="true" hotkey="s"/>
-            <Choice value="incorrect" hotkey="d"/>
-            <Choice value="unsure" hotkey="f"/>
-          </Choices>
+          <View className="birdsys-section">
+            <Header value="Species quality" size="6" style="margin: 0 0 2px 0; color: #98A2B3; font-weight: 500;"/>
+            <Choices name="specie" toName="image" perRegion="true" whenTagName="bird_bbox" required="true" choice="single-radio" showInline="true" layout="inline">
+              <Choice value="correct" selected="true" hotkey="s"/>
+              <Choice value="incorrect" hotkey="d"/>
+              <Choice value="unsure" hotkey="f"/>
+            </Choices>
+          </View>
         </Panel>
       </Collapse>
 
       <View visibleWhen="choice-unselected" whenTagName="readability" whenChoiceValue="unreadable">
         <View visibleWhen="choice-unselected" whenTagName="specie" whenChoiceValue="incorrect">
-          <Collapse accordion="false">
+          <Collapse accordion="false" className="birdsys-collapse">
             <Panel value="Context" open="true">
-              <Choices name="behavior" toName="image" perRegion="true" whenTagName="bird_bbox" required="true" choice="single-radio" showInline="true">
-                <Choice value="flying" hotkey="e"/>
-                <Choice value="foraging" hotkey="r"/>
-                <Choice value="resting" hotkey="t"/>
-                <Choice value="backresting" hotkey="y"/>
-                <Choice value="preening" hotkey="u"/>
-                <Choice value="display" hotkey="i"/>
-                <Choice value="unsure" hotkey="o"/>
-              </Choices>
+              <View className="birdsys-section">
+                <Header value="Behavior" size="6" style="margin: 0 0 2px 0; color: #98A2B3; font-weight: 500;"/>
+                <Choices name="behavior" toName="image" perRegion="true" whenTagName="bird_bbox" required="true" choice="single-radio" showInline="true" layout="inline">
+                  <Choice value="flying" hotkey="e"/>
+                  <Choice value="foraging" hotkey="r"/>
+                  <Choice value="resting" hotkey="t"/>
+                  <Choice value="backresting" hotkey="y"/>
+                  <Choice value="preening" hotkey="u"/>
+                  <Choice value="display" hotkey="i"/>
+                  <Choice value="unsure" hotkey="o"/>
+                </Choices>
+              </View>
 
-              <Choices name="substrate" toName="image" perRegion="true" whenTagName="bird_bbox" required="true" choice="single-radio" showInline="true">
-                <Choice value="ground" hotkey="g"/>
-                <Choice value="water" hotkey="w"/>
-                <Choice value="air" hotkey="v"/>
-                <Choice value="unsure" hotkey="b"/>
-              </Choices>
+              <View className="birdsys-section">
+                <Header value="Substrate" size="6" style="margin: 0 0 2px 0; color: #98A2B3; font-weight: 500;"/>
+                <Choices name="substrate" toName="image" perRegion="true" whenTagName="bird_bbox" required="true" choice="single-radio" showInline="true" layout="inline">
+                  <Choice value="ground" hotkey="g"/>
+                  <Choice value="water" hotkey="w"/>
+                  <Choice value="air" hotkey="v"/>
+                  <Choice value="unsure" hotkey="b"/>
+                </Choices>
+              </View>
             </Panel>
           </Collapse>
 
           <View visibleWhen="choice-selected" whenTagName="behavior" whenChoiceValue="resting,backresting">
             <View visibleWhen="choice-selected" whenTagName="substrate" whenChoiceValue="ground,water">
-              <Collapse accordion="false">
+              <Collapse accordion="false" className="birdsys-collapse">
                 <Panel value="Legs" open="true">
-                  <Choices name="legs" toName="image" perRegion="true" whenTagName="bird_bbox" required="true" choice="single-radio" showInline="true">
-                    <Choice value="one" hotkey="1"/>
-                    <Choice value="two" hotkey="2"/>
-                    <Choice value="unsure" selected="true" hotkey="3"/>
-                  </Choices>
+                  <View className="birdsys-section">
+                    <Header value="Visible legs" size="6" style="margin: 0 0 2px 0; color: #98A2B3; font-weight: 500;"/>
+                    <Choices name="legs" toName="image" perRegion="true" whenTagName="bird_bbox" required="true" choice="single-radio" showInline="true" layout="inline">
+                      <Choice value="one" hotkey="1"/>
+                      <Choice value="two" hotkey="2"/>
+                      <Choice value="unsure" selected="true" hotkey="3"/>
+                    </Choices>
+                  </View>
                 </Panel>
               </Collapse>
             </View>
