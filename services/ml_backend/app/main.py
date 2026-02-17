@@ -206,7 +206,7 @@ def predict(payload: dict[str, Any]) -> dict[str, Any]:
                 }
             )
 
-    return {
-        "predictions": predictions,
-        "results": predictions,
-    }
+    # Label Studio ML backend contract expects top-level "predictions".
+    # Returning duplicated shapes (e.g. both "predictions" and "results")
+    # can lead to non-deterministic UI state handling.
+    return {"predictions": predictions}

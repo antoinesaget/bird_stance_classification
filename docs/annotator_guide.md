@@ -6,13 +6,18 @@
 2. In Label Studio, import:
    `/Users/antoine/bird_leg/data/birds_project/labelstudio/imports/scolop2_sample50.tasks.json`
 
+## Required Label Studio project settings
+- `Interactive preannotations`: disabled.
+- `Auto-Accept Suggestions`: disabled in the labeling UI footer.
+- `Show predictions to annotators`: optional, but disable it if you want to avoid tab confusion between prediction and manual annotation.
+
 ## Per-image workflow
 1. Set `image_status` first:
    - `has_usable_birds`
    - `no_usable_birds`
 2. Review pre-annotated bird boxes from ML backend.
 3. Adjust each box if needed.
-4. For each Bird region:
+4. For each Bird region (Bird region selected):
    - set `readability`
    - if `readable`: set `activity` and `support`
    - if `activity=standing`: set `legs` and `resting_back`
@@ -20,13 +25,13 @@
 ## Rules
 - `image_status` is required for every image.
 - `readability` is required for every Bird region.
-- `legs` and `resting_back` are required only when standing.
+- `activity`, `support`, `legs`, and `resting_back` are optional in UI and masked downstream by normalization/training logic.
 - Use `unreadable` for birds that cannot be reliably interpreted.
 
-## UI checks for conditional logic
-- When `readability=unreadable`, `activity`, `support`, `legs`, `resting_back` must be hidden/disabled.
-- When `readability=readable` and `activity!=standing`, `legs` and `resting_back` must be hidden/disabled.
-- When `readability=readable` and `activity=standing`, `legs` and `resting_back` must be visible and required.
+## UI checks for persistence
+- Open one task from the table (single-task mode), edit a predicted attribute, click `Update`.
+- Reopen the same task and select the same Bird region; edited values must persist.
+- Deleting a prediction should not recreate it immediately when interactive preannotations is disabled.
 
 ## Speed tips
 - Keep keyboard focus in the label panel for rapid choice changes.
