@@ -6,6 +6,12 @@
 2. In Label Studio, import:
    `/Users/antoine/bird_leg/data/birds_project/labelstudio/imports/scolop2_sample50.tasks.json`
 
+## Refresh labeling UI on an existing project
+1. Open project `Settings` -> `Labeling Interface` -> `Code`.
+2. Replace with `/Users/antoine/bird_leg/labelstudio/label_config.xml` and save.
+3. Hard refresh the browser tab.
+4. Confirm the layout is 2-column: image on the left, all radio controls on the right.
+
 ## Required Label Studio project settings
 - `Interactive preannotations`: disabled.
 - `Auto-Accept Suggestions`: disabled in the labeling UI footer.
