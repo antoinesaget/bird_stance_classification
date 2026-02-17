@@ -43,3 +43,4 @@ Last updated: 2026-02-17
 - Label Studio ML backend validation unblock: added `GET /health` compatibility endpoint (in addition to `/healthz`) and rebuilt `ml-backend`; both return HTTP 200.
 - Label Studio ML backend validation unblock (follow-up): added `POST /setup` and `POST /validate`; verified from `label-studio` container to `http://ml-backend:9090/setup` -> HTTP 200 JSON response.
 - Labeling config validation unblock: `activity`, `support`, `legs`, `resting_back` set to `required="false"` to avoid hidden-field required errors when bird is unreadable.
+- Label Studio prediction path unblock: fixed local-files query path resolution in `/Users/antoine/bird_leg/services/ml_backend/app/main.py` so `?d=birds_project/...` resolves to `/data/birds_project/...` inside `ml-backend`; container-level `/predict` check now returns actual bbox+attributes instead of `FileNotFoundError`.

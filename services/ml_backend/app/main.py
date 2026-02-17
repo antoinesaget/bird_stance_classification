@@ -93,6 +93,26 @@ def _task_image_path(task: dict[str, Any]) -> pathlib.Path:
                 return path
             return (pathlib.Path.cwd() / path).absolute()
 
+    def _resolve_local_files_query_path(value: str) -> pathlib.Path:
+        # Label Studio local-files URLs commonly use query values like:
+        # - birds_project/raw_images/...
+        # - raw_images/...
+        # - /data/birds_project/raw_images/...
+        decoded = urllib.parse.unquote(value).strip()
+        if not decoded:
+            raise ValueError("Label Studio local-files URL has empty d= query value")
+
+        if decoded.startswith("/"):
+            return _safe_path(decoded)
+
+        if decoded.startswith("data/"):
+            return _safe_path(f"/{decoded}")
+
+        if decoded.startswith("birds_project/"):
+            return _safe_path(f"/data/{decoded}")
+
+        return _safe_path(str(env.birds_data_root / decoded))
+
     data = task.get("data") or {}
     candidates = [data.get("image"), data.get("filepath"), data.get("path"), task.get("image")]
     for item in candidates:
@@ -105,7 +125,7 @@ def _task_image_path(task: dict[str, Any]) -> pathlib.Path:
             query = urllib.parse.parse_qs(parsed.query)
             local = query.get("d", [""])[0]
             if local:
-                return _safe_path(local)
+                return _resolve_local_files_query_path(local)
 
         if value.startswith("http://") or value.startswith("https://"):
             continue
