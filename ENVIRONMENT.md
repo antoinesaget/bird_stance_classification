@@ -21,10 +21,33 @@ If `/data` is unavailable (read-only or restricted), use a local override such a
 - `LABEL_STUDIO_URL` (example: `http://localhost:8080`)
 - `LABEL_STUDIO_API_TOKEN` (Label Studio personal token)
 - `MODEL_A_WEIGHTS` (host checkpoint path for local scripts, example: `/Users/antoine/bird_leg/yolo11m.pt`)
+- `MODEL_A_DEVICE` (`auto`, `cpu`, `mps`, or CUDA index like `0`; default `auto`)
+- `MODEL_A_IMGSZ` (default `1280`)
+- `MODEL_A_MAX_DET` (default `300`)
+- `MODEL_A_CONF` (default `0.25`)
+- `MODEL_A_IOU` (default `0.45`)
 - `MODEL_B_CHECKPOINT` (Model B checkpoint path)
 - `MODEL_C_CHECKPOINT` (Model C checkpoint path)
 
 Compose binds `MODEL_A_WEIGHTS` into the ML backend container at `/models/model_a/weights.pt`.
+
+## Optional host ML backend mode (for Apple Silicon acceleration)
+Use this mode when you want Label Studio (Docker) to call an ML backend running on the host `uv` environment.
+
+1. Stop the containerized backend:
+```bash
+make stop-ml-backend-container
+```
+2. Start host backend:
+```bash
+MODEL_A_DEVICE=auto make run-ml-backend-host
+```
+3. In Label Studio ML settings, set backend URL to:
+`http://host.docker.internal:9091`
+
+Notes:
+- On macOS Docker Desktop, `host.docker.internal` resolves to the host.
+- `auto` selects CUDA first, then MPS, then CPU.
 
 ## Toolchain Requirements
 - Docker + Docker Compose v2
@@ -56,6 +79,12 @@ Expected: valid rendered compose config
 uv run python -c "import torch; print(torch.backends.mps.is_available())"
 ```
 Expected on macOS M4: `True` when torch build exposes MPS
+
+### Backend device check
+```bash
+curl -sS http://127.0.0.1:9091/health
+```
+Expected: `"model_a_device"` reflects selected runtime (`mps`, `0`, or `cpu`)
 
 ### Linux CUDA check
 ```bash

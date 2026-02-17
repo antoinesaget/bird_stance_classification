@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import pathlib
 import sys
 import urllib.parse
@@ -35,7 +36,14 @@ env = load_app_env()
 configure_logging(env.log_level)
 
 try:
-    model_a = YoloDetector(weights=env.model_a_weights)
+    model_a = YoloDetector(
+        weights=env.model_a_weights,
+        conf=float(os.getenv("MODEL_A_CONF", "0.25")),
+        iou=float(os.getenv("MODEL_A_IOU", "0.45")),
+        imgsz=int(os.getenv("MODEL_A_IMGSZ", "1280")),
+        max_det=int(os.getenv("MODEL_A_MAX_DET", "300")),
+        device=os.getenv("MODEL_A_DEVICE", "auto"),
+    )
 except Exception as exc:  # noqa: BLE001
     logger.exception("Failed to load Model A: %s", exc)
     model_a = None
@@ -50,6 +58,9 @@ def healthz() -> dict[str, Any]:
         "status": "ok",
         "model_a_loaded": model_a is not None,
         "model_a_weights": str(env.model_a_weights),
+        "model_a_device": model_a.device if model_a is not None else None,
+        "model_a_imgsz": model_a.imgsz if model_a is not None else None,
+        "model_a_max_det": model_a.max_det if model_a is not None else None,
         "model_b_checkpoint": str(env.model_b_checkpoint) if env.model_b_checkpoint else None,
         "model_c_checkpoint": str(env.model_c_checkpoint) if env.model_c_checkpoint else None,
     }
@@ -62,6 +73,9 @@ def health() -> dict[str, Any]:
         "status": "UP",
         "model_a_loaded": model_a is not None,
         "model_a_weights": str(env.model_a_weights),
+        "model_a_device": model_a.device if model_a is not None else None,
+        "model_a_imgsz": model_a.imgsz if model_a is not None else None,
+        "model_a_max_det": model_a.max_det if model_a is not None else None,
         "model_b_checkpoint": str(env.model_b_checkpoint) if env.model_b_checkpoint else None,
         "model_c_checkpoint": str(env.model_c_checkpoint) if env.model_c_checkpoint else None,
     }
@@ -74,6 +88,7 @@ def setup(payload: dict[str, Any] | None = None) -> dict[str, Any]:
         "status": "UP",
         "model_version": MODEL_VERSION,
         "model_a_loaded": model_a is not None,
+        "model_a_device": model_a.device if model_a is not None else None,
     }
 
 
@@ -102,14 +117,25 @@ def _task_image_path(task: dict[str, Any]) -> pathlib.Path:
         if not decoded:
             raise ValueError("Label Studio local-files URL has empty d= query value")
 
+        if decoded == "/data/birds_project":
+            return _safe_path(str(env.birds_data_root))
+
+        if decoded.startswith("/data/birds_project/"):
+            rel = decoded.removeprefix("/data/birds_project/").lstrip("/")
+            return _safe_path(str(env.birds_data_root / rel))
+
         if decoded.startswith("/"):
             return _safe_path(decoded)
 
         if decoded.startswith("data/"):
+            if decoded.startswith("data/birds_project/"):
+                rel = decoded.removeprefix("data/birds_project/").lstrip("/")
+                return _safe_path(str(env.birds_data_root / rel))
             return _safe_path(f"/{decoded}")
 
         if decoded.startswith("birds_project/"):
-            return _safe_path(f"/data/{decoded}")
+            rel = decoded.removeprefix("birds_project/").lstrip("/")
+            return _safe_path(str(env.birds_data_root / rel))
 
         return _safe_path(str(env.birds_data_root / decoded))
 

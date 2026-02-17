@@ -38,6 +38,7 @@ def to_label_studio_prediction(
 
         results.append(
             {
+                "id": f"{region_id}_readability",
                 "from_name": "readability",
                 "to_name": "image",
                 "type": "choices",
@@ -49,6 +50,7 @@ def to_label_studio_prediction(
 
         results.append(
             {
+                "id": f"{region_id}_activity",
                 "from_name": "activity",
                 "to_name": "image",
                 "type": "choices",
@@ -60,6 +62,7 @@ def to_label_studio_prediction(
 
         results.append(
             {
+                "id": f"{region_id}_support",
                 "from_name": "support",
                 "to_name": "image",
                 "type": "choices",
@@ -71,6 +74,7 @@ def to_label_studio_prediction(
 
         results.append(
             {
+                "id": f"{region_id}_legs",
                 "from_name": "legs",
                 "to_name": "image",
                 "type": "choices",
@@ -82,6 +86,7 @@ def to_label_studio_prediction(
 
         results.append(
             {
+                "id": f"{region_id}_resting_back",
                 "from_name": "resting_back",
                 "to_name": "image",
                 "type": "choices",
@@ -93,6 +98,7 @@ def to_label_studio_prediction(
 
     results.append(
         {
+            "id": f"img_{task_id}_image_status",
             "from_name": "image_status",
             "to_name": "image",
             "type": "choices",

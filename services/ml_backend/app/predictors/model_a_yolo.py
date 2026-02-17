@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+import torch
 from ultralytics import YOLO
+
+logger = logging.getLogger("birdsys.ml_backend.model_a")
 
 
 @dataclass(frozen=True)
@@ -25,15 +29,53 @@ class YoloDetector:
         iou: float = 0.45,
         imgsz: int = 1280,
         max_det: int = 300,
-        device: str = "cpu",
+        device: str = "auto",
     ) -> None:
         self.weights = Path(weights)
         self.conf = conf
         self.iou = iou
         self.imgsz = imgsz
         self.max_det = max_det
-        self.device = device
+        self.device = self._resolve_device(device)
         self.model = YOLO(str(self.weights))
+        logger.info(
+            "Loaded YOLO detector weights=%s device=%s conf=%.3f iou=%.3f imgsz=%d max_det=%d",
+            self.weights,
+            self.device,
+            self.conf,
+            self.iou,
+            self.imgsz,
+            self.max_det,
+        )
+
+    @staticmethod
+    def _resolve_device(requested: str) -> str:
+        req = (requested or "auto").strip().lower()
+        if req != "auto":
+            if req == "mps":
+                if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                    return "mps"
+                logger.warning("MODEL_A_DEVICE=mps requested but MPS is unavailable; falling back to CPU")
+                return "cpu"
+
+            if req == "cpu":
+                return "cpu"
+
+            if req == "cuda" or req.isdigit() or req.startswith("cuda:"):
+                if torch.cuda.is_available():
+                    return req
+                logger.warning("MODEL_A_DEVICE=%s requested but CUDA is unavailable; falling back to CPU", req)
+                return "cpu"
+
+            return req
+
+        if torch.cuda.is_available():
+            return "0"
+
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            return "mps"
+
+        return "cpu"
 
     def predict(self, image_path: Path) -> list[Detection]:
         results = self.model.predict(
