@@ -37,3 +37,4 @@ Last updated: 2026-02-17
 - `ml-backend /healthz` -> healthy and `model_a_loaded=true`
 - `ml-backend /predict` smoke -> success on sample image (`has_error=False`)
 - Latency smoke (20 images): mean `2853.7049 ms`, p95 `3430.6038 ms`, max `4263.5895 ms`
+- Label Studio manual-login unblock: reset password for existing `admin@local` user to `admin` (Django auth check passed).
