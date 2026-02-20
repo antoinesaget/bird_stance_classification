@@ -59,3 +59,9 @@
 - Keep keyboard focus in label panel for hotkey-driven labeling.
 - Validate one full task before bulk labeling.
 - Accept predictions only when visually correct.
+
+## Bulk apply for flock images (custom helper UI)
+- Install and use:
+  `/Users/antoine/bird_leg/docs/labelstudio_bulk_apply_helper.md`
+- Script source:
+  `/Users/antoine/bird_leg/labelstudio/tools/bulk_apply_selected_birds.user.js`

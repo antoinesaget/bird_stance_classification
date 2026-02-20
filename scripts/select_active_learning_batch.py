@@ -42,11 +42,19 @@ def row_scores(row: pd.Series) -> dict[str, float]:
         substrate_probs = det.get("substrate_probs") or {}
         ground_water_p = float(substrate_probs.get("ground", 0.0)) + float(substrate_probs.get("water", 0.0))
         legs_probs = det.get("legs_probs") or {}
-        legs_best = max(float(legs_probs.get("one", 0.0)), float(legs_probs.get("two", 0.0)), float(legs_probs.get("unsure", 0.0)))
+        legs_best = max(
+            float(legs_probs.get("one", 0.0)),
+            float(legs_probs.get("two", 0.0)),
+            float(legs_probs.get("unsure", 0.0)),
+            float(legs_probs.get("sitting", 0.0)),
+        )
 
         read_unc = max(read_unc, 1.0 - abs(read_p - 0.5) * 2.0)
         resting_low_legs = max(resting_low_legs, read_p * resting_p * ground_water_p * (1.0 - legs_best))
-        disagreement = max(disagreement, abs(resting_p - max(float(legs_probs.get("one", 0.0)), float(legs_probs.get("two", 0.0)))))
+        disagreement = max(
+            disagreement,
+            abs(resting_p - max(float(legs_probs.get("one", 0.0)), float(legs_probs.get("two", 0.0)), float(legs_probs.get("sitting", 0.0)))),
+        )
 
     diversity = diversity_score(str(row["image_id"]))
     return {

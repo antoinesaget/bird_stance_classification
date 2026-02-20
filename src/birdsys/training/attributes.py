@@ -15,7 +15,7 @@ BEHAVIOR_TO_ID = {
     "unsure": 6,
 }
 SUBSTRATE_TO_ID = {"ground": 0, "water": 1, "air": 2, "unsure": 3}
-LEGS_TO_ID = {"one": 0, "two": 1, "unsure": 2}
+LEGS_TO_ID = {"one": 0, "two": 1, "unsure": 2, "sitting": 3}
 
 
 @dataclass(frozen=True)

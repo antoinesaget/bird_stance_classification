@@ -40,100 +40,44 @@ def to_label_studio_prediction(
             }
         )
 
-        results.append(
-            {
-                "id": region_id,
-                "from_name": "readability",
-                "to_name": "image",
-                "type": "choices",
-                "parentID": region_id,
-                "score": float(attr.readability_conf),
-                "value": {
-                    "x": x,
-                    "y": y,
-                    "width": w,
-                    "height": h,
-                    "rotation": 0,
-                    "choices": [attr.readability],
-                },
-            }
-        )
+        def append_choice(from_name: str, score: float, choice: str) -> None:
+            results.append(
+                {
+                    "id": region_id,
+                    "from_name": from_name,
+                    "to_name": "image",
+                    "type": "choices",
+                    "parentID": region_id,
+                    "score": float(score),
+                    "value": {
+                        "x": x,
+                        "y": y,
+                        "width": w,
+                        "height": h,
+                        "rotation": 0,
+                        "choices": [choice],
+                    },
+                }
+            )
 
-        results.append(
-            {
-                "id": region_id,
-                "from_name": "specie",
-                "to_name": "image",
-                "type": "choices",
-                "parentID": region_id,
-                "score": float(attr.specie_conf),
-                "value": {
-                    "x": x,
-                    "y": y,
-                    "width": w,
-                    "height": h,
-                    "rotation": 0,
-                    "choices": [attr.specie],
-                },
-            }
-        )
+        # Always present core fields.
+        append_choice("readability", attr.readability_conf, attr.readability)
+        append_choice("specie", attr.specie_conf, attr.specie)
 
-        results.append(
-            {
-                "id": region_id,
-                "from_name": "behavior",
-                "to_name": "image",
-                "type": "choices",
-                "parentID": region_id,
-                "score": float(attr.behavior_conf),
-                "value": {
-                    "x": x,
-                    "y": y,
-                    "width": w,
-                    "height": h,
-                    "rotation": 0,
-                    "choices": [attr.behavior],
-                },
-            }
-        )
+        # Strict LS config branch:
+        # behavior/substrate visible only if readability != unreadable and specie != incorrect.
+        can_show_context = attr.readability != "unreadable" and attr.specie != "incorrect"
+        if can_show_context:
+            append_choice("behavior", attr.behavior_conf, attr.behavior)
+            append_choice("substrate", attr.substrate_conf, attr.substrate)
 
-        results.append(
-            {
-                "id": region_id,
-                "from_name": "substrate",
-                "to_name": "image",
-                "type": "choices",
-                "parentID": region_id,
-                "score": float(attr.substrate_conf),
-                "value": {
-                    "x": x,
-                    "y": y,
-                    "width": w,
-                    "height": h,
-                    "rotation": 0,
-                    "choices": [attr.substrate],
-                },
-            }
-        )
-
-        results.append(
-            {
-                "id": region_id,
-                "from_name": "legs",
-                "to_name": "image",
-                "type": "choices",
-                "parentID": region_id,
-                "score": float(attr.legs_conf),
-                "value": {
-                    "x": x,
-                    "y": y,
-                    "width": w,
-                    "height": h,
-                    "rotation": 0,
-                    "choices": [attr.legs],
-                },
-            }
-        )
+            # Stance (legs) visible only for resting/backresting on ground/water.
+            can_show_stance = (
+                attr.behavior in {"resting", "backresting"}
+                and attr.substrate in {"ground", "water"}
+            )
+            if can_show_stance:
+                append_choice("legs", attr.legs_conf, attr.legs)
 
     results.append(
         {

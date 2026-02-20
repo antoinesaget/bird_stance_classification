@@ -10,6 +10,8 @@ import time
 import urllib.request
 from statistics import mean
 
+from services.ml_backend.app.response_contract import extract_predictions
+
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
@@ -122,7 +124,8 @@ def main() -> int:
                 image_path=str(image),
                 timeout_seconds=args.timeout_seconds,
             )
-            pred = (body.get("predictions") or [{}])[0]
+            predictions = extract_predictions(body)
+            pred = predictions[0] if predictions else {}
             has_error = bool("error" in pred)
             result_count = int(len(pred.get("result") or []))
             score = float(pred.get("score") or 0.0)

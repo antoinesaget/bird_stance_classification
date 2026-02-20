@@ -7,6 +7,7 @@ import json
 import os
 import pathlib
 import random
+import time
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 import sys
@@ -32,6 +33,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-det", type=int, default=200)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--model-a", default=os.getenv("MODEL_A_WEIGHTS", "yolo11m.pt"))
+    parser.add_argument("--progress-every", type=int, default=100, help="Emit running metrics every N images")
     return parser.parse_args()
 
 
@@ -96,7 +98,7 @@ def heuristic_attributes(det_conf: float, bbox_h: float) -> dict[str, object]:
         ]
     )
 
-    one_p, two_p, unsure_p = softmax([0.35, 0.55, 0.15 + (1.0 - det_conf)])
+    one_p, two_p, unsure_p, sitting_p = softmax([0.35, 0.55, 0.15 + (1.0 - det_conf), 0.25])
 
     return {
         "readability_probs": {"readable": readable, "occluded": occluded, "unreadable": unreadable},
@@ -116,7 +118,7 @@ def heuristic_attributes(det_conf: float, bbox_h: float) -> dict[str, object]:
             "air": substrate_probs[2],
             "unsure": substrate_probs[3],
         },
-        "legs_probs": {"one": one_p, "two": two_p, "unsure": unsure_p},
+        "legs_probs": {"one": one_p, "two": two_p, "unsure": unsure_p, "sitting": sitting_p},
     }
 
 
@@ -165,7 +167,12 @@ def main() -> int:
     model = YOLO(args.model_a)
 
     rows: list[dict[str, object]] = []
-    for image_path in selected:
+    total_images = len(selected)
+    images_with_dets = 0
+    detections_total = 0
+    started_at = time.monotonic()
+
+    for idx, image_path in enumerate(selected, start=1):
         results = model.predict(
             source=str(image_path),
             conf=args.conf,
@@ -199,6 +206,10 @@ def main() -> int:
                 max_conf = max(max_conf, det_conf)
 
         image_status_prob = heuristic_image_status(len(dets), max_conf)
+        detections_total += len(dets)
+        if dets:
+            images_with_dets += 1
+
         rows.append(
             {
                 "image_id": image_path.stem,
@@ -209,6 +220,24 @@ def main() -> int:
                 "detections_json": json.dumps(dets, separators=(",", ":")),
             }
         )
+
+        should_log = (
+            args.progress_every > 0
+            and (idx % args.progress_every == 0 or idx == total_images)
+        )
+        if should_log:
+            elapsed = max(1e-6, time.monotonic() - started_at)
+            ips = idx / elapsed
+            eta_s = (total_images - idx) / ips if ips > 0 else 0.0
+            print(
+                "progress="
+                f"{idx}/{total_images} "
+                f"images_with_detections={images_with_dets} "
+                f"detections_total={detections_total} "
+                f"ips={ips:.3f} "
+                f"eta_s={eta_s:.1f}",
+                flush=True,
+            )
 
     df = pd.DataFrame(rows).sort_values("image_id").reset_index(drop=True)
     out_parquet = out_dir / "predictions.parquet"
@@ -232,7 +261,12 @@ def main() -> int:
         encoding="utf-8",
     )
 
+    elapsed_total = max(1e-6, time.monotonic() - started_at)
     print(f"images_inferred={len(df)}")
+    print(f"images_with_detections={images_with_dets}")
+    print(f"detections_total={detections_total}")
+    print(f"duration_s={elapsed_total:.2f}")
+    print(f"ips={len(df) / elapsed_total:.3f}")
     print(f"output={out_parquet}")
     return 0
 

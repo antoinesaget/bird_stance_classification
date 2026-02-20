@@ -109,7 +109,7 @@ def extract_task_rows(
     valid_specie = {"correct", "incorrect", "unsure"}
     valid_behavior = {"flying", "foraging", "resting", "backresting", "preening", "display", "unsure"}
     valid_substrate = {"ground", "water", "air", "unsure"}
-    valid_legs = {"one", "two", "unsure"}
+    valid_legs = {"one", "two", "unsure", "sitting"}
 
     annotations = task.get("annotations") or []
     annotation = annotations[0] if annotations else {"result": []}

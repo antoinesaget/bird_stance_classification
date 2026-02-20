@@ -16,7 +16,7 @@ services:
       retries: 5
 
   label-studio:
-    image: heartexlabs/label-studio:latest
+    image: heartexlabs/label-studio:1.22.0
     container_name: birds-label-studio
     restart: unless-stopped
     ports:
@@ -30,8 +30,14 @@ services:
       POSTGRE_HOST: postgres
       LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED: "true"
       LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT: /data
-      LABEL_STUDIO_USERNAME: admin@local
-      LABEL_STUDIO_PASSWORD: admin
+      LABEL_STUDIO_USERNAME: ${LABEL_STUDIO_USERNAME:-admin@local}
+      LABEL_STUDIO_PASSWORD: ${LABEL_STUDIO_PASSWORD:-change_me}
+      # Keep user references stable in Data Manager task lists (avoids unresolved annotator->user refs in MST).
+      fflag_all_feat_utc_204_users_performance_improvements_in_dm_for_large_orgs: "false"
+      # Disable grid preview modal path; it can trigger heavy UI rerenders on grid-item clicks.
+      fflag_feat_front_leap_1424_grid_preview_short: "false"
+      # Reduce Data Manager refresh churn from background polling.
+      fflag_dev_disable_polling_killswitch_short: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -40,6 +46,11 @@ services:
     volumes:
       - ${BIRDS_DATA_ROOT:-/data/birds_project}:/data/birds_project
       - labelstudio_data:/label-studio/data
+      # Override local-files response headers to improve browser thumbnail caching in grid view.
+      - ./overrides/localfiles_views.py:/label-studio/label_studio/io_storages/localfiles/views.py:ro
+    extra_hosts:
+      # Required on Linux when Label Studio (container) calls ML backend on host at host.docker.internal.
+      - "host.docker.internal:host-gateway"
 
   ml-backend:
     build:

@@ -33,11 +33,17 @@ dist/
 # Local runtime/cache
 /tmp/
 *.log
+.cursor/
+.jupyter/
+.local/
+.cache/
 
 # Large local datasets and experiment outputs
 /data/
 /scraped_images/
 /epxeriment_results/
+output/
+notebooks/
 ML__*.csv
 
 # Model and heavy ML artifacts
@@ -48,3 +54,5 @@ ML__*.csv
 # Mac/Linux metadata
 .AppleDouble
 .LSOverride
+
+ebd_scolop1_smp_relJan-2026/

@@ -90,7 +90,7 @@
                 perRegion="true"
                 whenTagName="bird_bbox"
                 choice="single-radio"
-                required="true"
+                required="false"
                 showInline="true">
                 <Choice value="one" hotkey="1"/>
                 <Choice value="two" hotkey="2"/>

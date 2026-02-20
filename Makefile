@@ -8,7 +8,7 @@ ENV_FILE ?= $(REPO_ROOT)/.env
 COMPOSE ?= docker compose --env-file $(ENV_FILE) -f $(COMPOSE_FILE)
 ML_BACKEND_HOST_PORT ?= 9091
 
-.PHONY: bootstrap check test smoke compose-config compose-up compose-down compose-ps run-ml-backend run-ml-backend-host stop-ml-backend-container
+.PHONY: bootstrap check test smoke compose-config compose-up compose-down compose-ps run-ml-backend run-ml-backend-host stop-ml-backend-container labelstudio-bootstrap-users
 
 bootstrap:
 	$(UV) sync --python $(PYTHON_VERSION)
@@ -43,6 +43,9 @@ run-ml-backend-host:
 
 stop-ml-backend-container:
 	$(COMPOSE) stop ml-backend
+
+labelstudio-bootstrap-users:
+	./scripts/bootstrap_labelstudio_users.sh
 
 test:
 	$(UV) run pytest -q

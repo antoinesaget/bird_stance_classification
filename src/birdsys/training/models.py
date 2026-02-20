@@ -5,7 +5,12 @@ import torch.nn as nn
 
 
 class MultiHeadAttributeModel(nn.Module):
-    def __init__(self, backbone_name: str = "convnextv2_small", pretrained: bool = True) -> None:
+    def __init__(
+        self,
+        backbone_name: str = "convnextv2_tiny.fcmae_ft_in1k",
+        pretrained: bool = True,
+        heads: list[str] | None = None,
+    ) -> None:
         super().__init__()
         import timm
 
@@ -18,21 +23,27 @@ class MultiHeadAttributeModel(nn.Module):
         )
         feat_dim = int(getattr(self.backbone, "num_features", 768))
 
-        self.readability = nn.Linear(feat_dim, 3)
-        self.specie = nn.Linear(feat_dim, 3)
-        self.behavior = nn.Linear(feat_dim, 7)
-        self.substrate = nn.Linear(feat_dim, 4)
-        self.legs = nn.Linear(feat_dim, 3)
+        # Default to all heads if not specified
+        if heads is None:
+            heads = ["readability", "specie", "behavior", "substrate", "legs"]
+        
+        self.heads = heads
+        head_configs = {
+            "readability": 3,
+            "specie": 3,
+            "behavior": 7,
+            "substrate": 4,
+            "legs": 4,
+        }
+
+        for head in heads:
+            if head not in head_configs:
+                raise ValueError(f"Unknown head: {head}. Must be one of {list(head_configs.keys())}")
+            setattr(self, head, nn.Linear(feat_dim, head_configs[head]))
 
     def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
         feat = self.backbone(x)
-        return {
-            "readability": self.readability(feat),
-            "specie": self.specie(feat),
-            "behavior": self.behavior(feat),
-            "substrate": self.substrate(feat),
-            "legs": self.legs(feat),
-        }
+        return {head: getattr(self, head)(feat) for head in self.heads}
 
     def freeze_backbone(self) -> None:
         for p in self.backbone.parameters():

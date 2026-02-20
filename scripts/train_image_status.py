@@ -6,6 +6,8 @@ import json
 import os
 import pathlib
 from dataclasses import dataclass
+import datetime as dt
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -22,6 +24,7 @@ import sys
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from birdsys.paths import ensure_layout, next_version_dir
+from birdsys.reporting import diff_numeric_dict, find_previous_version_dir
 from birdsys.training.metrics import confusion_matrix, macro_f1
 from birdsys.training.models import ImageStatusModel
 
@@ -158,6 +161,71 @@ def run_epoch(model, loader, device, optimizer=None):
     }
 
 
+def write_training_report(
+    *,
+    out_dir: pathlib.Path,
+    annotation_version: str,
+    device: torch.device,
+    smoke: bool,
+    pretrained: bool,
+    history: list[dict[str, float]],
+    test_metrics: dict[str, Any],
+    counts: dict[str, Any],
+    previous_metrics: dict[str, Any] | None,
+) -> tuple[pathlib.Path, pathlib.Path]:
+    current_summary = {
+        "test_loss": float(test_metrics["loss"]),
+        "test_accuracy": float(test_metrics["accuracy"]),
+        "test_f1": float(test_metrics["f1"]),
+    }
+    report: dict[str, Any] = {
+        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "model_version": out_dir.name,
+        "annotation_version": annotation_version,
+        "device": str(device),
+        "smoke": bool(smoke),
+        "pretrained": bool(pretrained),
+        "history": history,
+        "test_summary": current_summary,
+        "counts": counts,
+        "comparison_to_previous": None,
+    }
+    if previous_metrics is not None:
+        prev_test = previous_metrics.get("test", {})
+        prev_summary = {
+            "test_loss": float(prev_test.get("loss", 0.0)),
+            "test_accuracy": float(prev_test.get("accuracy", 0.0)),
+            "test_f1": float(prev_test.get("f1", 0.0)),
+        }
+        report["comparison_to_previous"] = {
+            "previous_model_version": previous_metrics.get("model_version"),
+            "delta_test_metrics": diff_numeric_dict(current_summary, prev_summary),
+        }
+
+    report_json = out_dir / "report.json"
+    report_json.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+
+    lines = [
+        f"# Model C Report: {out_dir.name}",
+        "",
+        f"- Annotation version: `{annotation_version}`",
+        f"- Device: `{device}`",
+        f"- Smoke run: `{smoke}`",
+        f"- Pretrained backbone: `{pretrained}`",
+        f"- Test summary: `{current_summary}`",
+        f"- Counts: `{counts}`",
+    ]
+    if report["comparison_to_previous"] is not None:
+        cmp = report["comparison_to_previous"]
+        lines.append(
+            f"- Delta vs `{cmp['previous_model_version']}`: `{cmp['delta_test_metrics']}`"
+        )
+
+    report_md = out_dir / "report.md"
+    report_md.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return report_json, report_md
+
+
 def main() -> int:
     args = parse_args()
     cfg = load_cfg(pathlib.Path(args.config).resolve())
@@ -280,9 +348,31 @@ def main() -> int:
     }
     (out_dir / "metrics.json").write_text(json.dumps(metrics_payload, indent=2) + "\n", encoding="utf-8")
 
+    previous_metrics: dict[str, Any] | None = None
+    prev_dir = find_previous_version_dir(layout.models_image_status, "status", out_dir.name)
+    if prev_dir is not None:
+        prev_metrics_path = prev_dir / "metrics.json"
+        if prev_metrics_path.exists():
+            previous_metrics = json.loads(prev_metrics_path.read_text(encoding="utf-8"))
+            previous_metrics["model_version"] = prev_dir.name
+
+    report_json, report_md = write_training_report(
+        out_dir=out_dir,
+        annotation_version=args.annotation_version,
+        device=device,
+        smoke=bool(args.smoke),
+        pretrained=not args.no_pretrained,
+        history=history,
+        test_metrics=test_metrics,
+        counts=metrics_payload["counts"],
+        previous_metrics=previous_metrics,
+    )
+
     print(f"output_dir={out_dir}")
     print(f"checkpoint={checkpoint_path}")
     print(f"metrics={out_dir / 'metrics.json'}")
+    print(f"report_json={report_json}")
+    print(f"report_md={report_md}")
     return 0
 
 

@@ -6,6 +6,9 @@ import json
 import os
 import pathlib
 from dataclasses import dataclass
+import datetime as dt
+import time
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -22,6 +25,7 @@ import sys
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from birdsys.paths import ensure_layout, next_version_dir
+from birdsys.reporting import diff_numeric_dict, find_previous_version_dir
 from birdsys.training.attributes import (
     BEHAVIOR_TO_ID,
     LEGS_TO_ID,
@@ -40,7 +44,7 @@ HEAD_CLASS_COUNTS = {
     "specie": 3,
     "behavior": 7,
     "substrate": 4,
-    "legs": 3,
+    "legs": 4,
 }
 
 
@@ -114,6 +118,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", default="", help="Optional explicit output dir")
     parser.add_argument("--smoke", action="store_true", help="Use tiny subset and 1 epoch")
     parser.add_argument("--no-pretrained", action="store_true", help="Disable pretrained backbone weights")
+    parser.add_argument(
+        "--progress-every-batches",
+        type=int,
+        default=20,
+        help="Emit running training metrics every N batches",
+    )
     return parser.parse_args()
 
 
@@ -182,6 +192,10 @@ def run_epoch(
     loader: DataLoader,
     device: torch.device,
     optimizer: torch.optim.Optimizer | None,
+    phase_name: str,
+    epoch_idx: int,
+    total_epochs: int,
+    progress_every_batches: int,
 ) -> float:
     criterion = nn.CrossEntropyLoss()
     total_loss = 0.0
@@ -189,8 +203,10 @@ def run_epoch(
 
     train_mode = optimizer is not None
     model.train(train_mode)
+    epoch_started = time.monotonic()
+    total_batches = max(1, len(loader))
 
-    for batch in loader:
+    for batch_idx, batch in enumerate(loader, start=1):
         x = batch["image"].to(device)
         tensor_batch = {
             key: value.to(device) if isinstance(value, torch.Tensor) else value
@@ -206,6 +222,26 @@ def run_epoch(
 
         total_loss += float(loss.detach().cpu())
         steps += 1
+
+        should_log = (
+            progress_every_batches > 0
+            and (batch_idx % progress_every_batches == 0 or batch_idx == total_batches)
+        )
+        if should_log:
+            elapsed = max(1e-6, time.monotonic() - epoch_started)
+            avg_loss = total_loss / max(steps, 1)
+            batches_per_s = batch_idx / elapsed
+            eta_s = (total_batches - batch_idx) / batches_per_s if batches_per_s > 0 else 0.0
+            print(
+                "train_progress "
+                f"phase={phase_name} "
+                f"epoch={epoch_idx}/{total_epochs} "
+                f"batch={batch_idx}/{total_batches} "
+                f"avg_loss={avg_loss:.5f} "
+                f"batches_per_s={batches_per_s:.2f} "
+                f"eta_s={eta_s:.1f}",
+                flush=True,
+            )
 
     return total_loss / max(steps, 1)
 
@@ -235,7 +271,7 @@ def evaluate(
                 storage[head]["pred"].extend(preds[mask].tolist())
 
     metrics: dict[str, float] = {}
-    legs_cm = np.zeros((3, 3), dtype=np.int64)
+    legs_cm = np.zeros((4, 4), dtype=np.int64)
     for head, num_classes in HEAD_CLASS_COUNTS.items():
         y_true = np.array(storage[head]["true"], dtype=np.int64)
         y_pred = np.array(storage[head]["pred"], dtype=np.int64)
@@ -259,6 +295,82 @@ def dataframe_from_split(path: pathlib.Path, smoke: bool) -> pd.DataFrame:
     if smoke:
         return frame.head(min(len(frame), 128)).reset_index(drop=True)
     return frame
+
+
+def summarize_labels(frame: pd.DataFrame) -> dict[str, dict[str, int]]:
+    out: dict[str, dict[str, int]] = {}
+    for column in ["readability", "specie", "behavior", "substrate", "legs"]:
+        vc = frame[column].fillna("<null>").value_counts().sort_index().to_dict()
+        out[column] = {str(k): int(v) for k, v in vc.items()}
+    return out
+
+
+def write_training_report(
+    *,
+    out_dir: pathlib.Path,
+    dataset_dir: pathlib.Path,
+    device: torch.device,
+    smoke: bool,
+    pretrained: bool,
+    history: list[dict[str, float]],
+    final_metrics: dict[str, float],
+    train_rows: int,
+    val_rows: int,
+    train_label_counts: dict[str, dict[str, int]],
+    val_label_counts: dict[str, dict[str, int]],
+    previous_metrics: dict[str, Any] | None,
+) -> tuple[pathlib.Path, pathlib.Path]:
+    report: dict[str, Any] = {
+        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "model_version": out_dir.name,
+        "dataset_version": dataset_dir.name,
+        "device": str(device),
+        "smoke": bool(smoke),
+        "pretrained": bool(pretrained),
+        "train_rows": int(train_rows),
+        "val_rows": int(val_rows),
+        "train_label_counts": train_label_counts,
+        "val_label_counts": val_label_counts,
+        "history": history,
+        "final_metrics": final_metrics,
+        "comparison_to_previous": None,
+    }
+
+    if previous_metrics is not None:
+        prev_final = previous_metrics.get("final", {})
+        comparable_keys = [
+            key
+            for key in sorted(final_metrics)
+            if key == "train_loss" or key.endswith("_accuracy") or key.endswith("_f1")
+        ]
+        current_slice = {key: final_metrics[key] for key in comparable_keys}
+        previous_slice = {key: prev_final.get(key) for key in comparable_keys}
+        report["comparison_to_previous"] = {
+            "previous_model_version": previous_metrics.get("model_version"),
+            "delta_final_metrics": diff_numeric_dict(current_slice, previous_slice),
+        }
+
+    report_json = out_dir / "report.json"
+    report_json.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+
+    lines = [
+        f"# Model B Report: {out_dir.name}",
+        "",
+        f"- Dataset: `{dataset_dir.name}`",
+        f"- Device: `{device}`",
+        f"- Smoke run: `{smoke}`",
+        f"- Pretrained backbone: `{pretrained}`",
+        f"- Rows: train `{train_rows}`, val `{val_rows}`",
+        f"- Final metrics: `{final_metrics}`",
+    ]
+    if report["comparison_to_previous"] is not None:
+        cmp = report["comparison_to_previous"]
+        lines.append(
+            f"- Delta vs `{cmp['previous_model_version']}`: `{cmp['delta_final_metrics']}`"
+        )
+    report_md = out_dir / "report.md"
+    report_md.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return report_json, report_md
 
 
 def main() -> int:
@@ -299,6 +411,17 @@ def main() -> int:
         )
 
     device = pick_device(effective.device)
+    total_planned_epochs = int(effective.head_epochs + effective.finetune_epochs)
+    print(
+        "train_setup "
+        f"dataset={dataset_dir.name} "
+        f"train_rows={len(train_df)} "
+        f"val_rows={len(val_df)} "
+        f"device={device} "
+        f"total_epochs={total_planned_epochs} "
+        f"batch_size={effective.batch_size}",
+        flush=True,
+    )
 
     train_ds = BirdAttributeDataset(train_df, image_size=effective.image_size)
     val_ds = BirdAttributeDataset(val_df, image_size=effective.image_size)
@@ -333,31 +456,73 @@ def main() -> int:
         weight_decay=effective.weight_decay,
     )
     for epoch in range(effective.head_epochs):
-        train_loss = run_epoch(model=model, loader=train_loader, device=device, optimizer=opt1)
+        epoch_number = epoch + 1
+        epoch_started = time.monotonic()
+        train_loss = run_epoch(
+            model=model,
+            loader=train_loader,
+            device=device,
+            optimizer=opt1,
+            phase_name="head",
+            epoch_idx=epoch_number,
+            total_epochs=effective.head_epochs,
+            progress_every_batches=args.progress_every_batches,
+        )
         val_metrics, _ = evaluate(model=model, loader=val_loader, device=device)
         history.append(
             {
                 "phase": 1,
-                "epoch": epoch + 1,
+                "epoch": epoch_number,
                 "train_loss": train_loss,
                 **val_metrics,
             }
+        )
+        print(
+            "epoch_done "
+            f"phase=head "
+            f"epoch={epoch_number}/{effective.head_epochs} "
+            f"train_loss={train_loss:.5f} "
+            f"behavior_f1={val_metrics.get('behavior_f1', 0.0):.5f} "
+            f"legs_f1={val_metrics.get('legs_f1', 0.0):.5f} "
+            f"duration_s={time.monotonic() - epoch_started:.2f}",
+            flush=True,
         )
 
     # Phase 2: light fine-tuning
     model.unfreeze_backbone()
     opt2 = torch.optim.AdamW(model.parameters(), lr=effective.finetune_lr, weight_decay=effective.weight_decay)
-    legs_cm = np.zeros((3, 3), dtype=np.int64)
+    legs_cm = np.zeros((4, 4), dtype=np.int64)
     for epoch in range(effective.finetune_epochs):
-        train_loss = run_epoch(model=model, loader=train_loader, device=device, optimizer=opt2)
+        epoch_number = epoch + 1
+        epoch_started = time.monotonic()
+        train_loss = run_epoch(
+            model=model,
+            loader=train_loader,
+            device=device,
+            optimizer=opt2,
+            phase_name="finetune",
+            epoch_idx=epoch_number,
+            total_epochs=effective.finetune_epochs,
+            progress_every_batches=args.progress_every_batches,
+        )
         val_metrics, legs_cm = evaluate(model=model, loader=val_loader, device=device)
         history.append(
             {
                 "phase": 2,
-                "epoch": epoch + 1,
+                "epoch": epoch_number,
                 "train_loss": train_loss,
                 **val_metrics,
             }
+        )
+        print(
+            "epoch_done "
+            f"phase=finetune "
+            f"epoch={epoch_number}/{effective.finetune_epochs} "
+            f"train_loss={train_loss:.5f} "
+            f"behavior_f1={val_metrics.get('behavior_f1', 0.0):.5f} "
+            f"legs_f1={val_metrics.get('legs_f1', 0.0):.5f} "
+            f"duration_s={time.monotonic() - epoch_started:.2f}",
+            flush=True,
         )
 
     final_metrics = history[-1] if history else {}
@@ -411,12 +576,40 @@ def main() -> int:
     )
 
     legs_cm_path = out_dir / "legs_confusion_matrix.csv"
-    pd.DataFrame(legs_cm, index=["one", "two", "unsure"], columns=["one", "two", "unsure"]).to_csv(legs_cm_path)
+    pd.DataFrame(
+        legs_cm,
+        index=["one", "two", "unsure", "sitting"],
+        columns=["one", "two", "unsure", "sitting"],
+    ).to_csv(legs_cm_path)
+
+    previous_metrics: dict[str, Any] | None = None
+    prev_dir = find_previous_version_dir(layout.models_attributes, "convnextv2s", out_dir.name)
+    if prev_dir is not None:
+        prev_metrics_path = prev_dir / "metrics.json"
+        if prev_metrics_path.exists():
+            previous_metrics = json.loads(prev_metrics_path.read_text(encoding="utf-8"))
+            previous_metrics["model_version"] = prev_dir.name
+    report_json, report_md = write_training_report(
+        out_dir=out_dir,
+        dataset_dir=dataset_dir,
+        device=device,
+        smoke=bool(args.smoke),
+        pretrained=not args.no_pretrained,
+        history=history,
+        final_metrics=final_metrics,
+        train_rows=len(train_df),
+        val_rows=len(val_df),
+        train_label_counts=summarize_labels(train_df),
+        val_label_counts=summarize_labels(val_df),
+        previous_metrics=previous_metrics,
+    )
 
     print(f"output_dir={out_dir}")
     print(f"checkpoint={checkpoint_path}")
     print(f"metrics={metrics_out}")
     print(f"legs_confusion_matrix={legs_cm_path}")
+    print(f"report_json={report_json}")
+    print(f"report_md={report_md}")
     return 0
 
 

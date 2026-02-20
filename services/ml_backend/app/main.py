@@ -19,6 +19,7 @@ from birdsys.logging import configure_logging
 from .predictors.model_a_yolo import YoloDetector
 from .predictors.model_b_attributes import AttributePredictor
 from .predictors.model_c_image_status import ImageStatusPredictor
+from .response_contract import format_predict_response
 from .serializers import to_label_studio_prediction
 
 MODEL_VERSION = "birdsys-backend-v0.1"
@@ -57,6 +58,8 @@ def healthz() -> dict[str, Any]:
     return {
         "status": "ok",
         "model_a_loaded": model_a is not None,
+        "model_b_loaded": model_b.model is not None,
+        "model_c_loaded": model_c.model is not None,
         "model_a_weights": str(env.model_a_weights),
         "model_a_device": model_a.device if model_a is not None else None,
         "model_a_imgsz": model_a.imgsz if model_a is not None else None,
@@ -72,6 +75,8 @@ def health() -> dict[str, Any]:
     return {
         "status": "UP",
         "model_a_loaded": model_a is not None,
+        "model_b_loaded": model_b.model is not None,
+        "model_c_loaded": model_c.model is not None,
         "model_a_weights": str(env.model_a_weights),
         "model_a_device": model_a.device if model_a is not None else None,
         "model_a_imgsz": model_a.imgsz if model_a is not None else None,
@@ -88,6 +93,8 @@ def setup(payload: dict[str, Any] | None = None) -> dict[str, Any]:
         "status": "UP",
         "model_version": MODEL_VERSION,
         "model_a_loaded": model_a is not None,
+        "model_b_loaded": model_b.model is not None,
+        "model_c_loaded": model_c.model is not None,
         "model_a_device": model_a.device if model_a is not None else None,
     }
 
@@ -167,6 +174,8 @@ def predict(payload: dict[str, Any]) -> dict[str, Any]:
     if tasks is None and isinstance(payload, list):
         tasks = payload
 
+    logger.info("predict request tasks=%d payload_type=%s", len(tasks or []), type(payload).__name__)
+
     if not tasks:
         raise HTTPException(status_code=400, detail="No tasks provided")
 
@@ -182,8 +191,8 @@ def predict(payload: dict[str, Any]) -> dict[str, Any]:
                 raise FileNotFoundError(image_path)
 
             detections = model_a.predict(image_path)
-            attrs = model_b.predict(detections)
-            image_status_label, image_status_conf = model_c.predict_label(detections)
+            attrs = model_b.predict(detections, image_path=image_path)
+            image_status_label, image_status_conf = model_c.predict_label(detections, image_path=image_path)
             logger.info(
                 "predict task=%s image=%s detections=%d image_status=%s conf=%.3f",
                 task_id,
@@ -225,7 +234,14 @@ def predict(payload: dict[str, Any]) -> dict[str, Any]:
                 }
             )
 
-    # Label Studio ML backend contract expects top-level "predictions".
-    # Returning duplicated shapes (e.g. both "predictions" and "results")
-    # can lead to non-deterministic UI state handling.
-    return {"predictions": predictions}
+    response = format_predict_response(predictions)
+    first_result_len = 0
+    if predictions:
+        first_result_len = len(predictions[0].get("result") or [])
+    logger.info(
+        "predict response tasks=%d keys=%s first_prediction_result_count=%d",
+        len(predictions),
+        ",".join(sorted(response.keys())),
+        first_result_len,
+    )
+    return response
