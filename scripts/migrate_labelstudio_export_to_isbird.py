@@ -18,6 +18,11 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="Optional migration report output path (default: <output-json>.report.json)",
     )
+    parser.add_argument(
+        "--reimport-safe",
+        action="store_true",
+        help="Write a Label Studio reimport-safe payload (strip unsupported metadata/predictions IDs)",
+    )
     parser.add_argument("--overwrite", action="store_true", help="Allow overwriting existing outputs")
     return parser.parse_args()
 
@@ -187,6 +192,32 @@ def migrate_payload(payload: list[dict[str, Any]]) -> tuple[list[dict[str, Any]]
     return migrated, report
 
 
+def _compact_annotation_payload(annotation: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "result": annotation.get("result") or [],
+        "was_cancelled": bool(annotation.get("was_cancelled", False)),
+        "ground_truth": bool(annotation.get("ground_truth", False)),
+    }
+
+
+def make_reimport_safe(payload: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    safe_tasks: list[dict[str, Any]] = []
+    for task in payload:
+        safe_task: dict[str, Any] = {
+            "id": task.get("id"),
+            "data": task.get("data") or {},
+            "meta": task.get("meta") or {},
+            "annotations": [],
+        }
+        annotations = task.get("annotations") or []
+        if isinstance(annotations, list):
+            safe_task["annotations"] = [
+                _compact_annotation_payload(ann) for ann in annotations if isinstance(ann, dict)
+            ]
+        safe_tasks.append(safe_task)
+    return safe_tasks
+
+
 def main() -> int:
     args = parse_args()
 
@@ -210,6 +241,11 @@ def main() -> int:
         raise TypeError("Label Studio export payload must be a list")
 
     migrated, report = migrate_payload(payload)
+    if args.reimport_safe:
+        migrated = make_reimport_safe(migrated)
+        report["stats"]["reimport_safe"] = 1
+    else:
+        report["stats"]["reimport_safe"] = 0
 
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_text(json.dumps(migrated, ensure_ascii=True) + "\n", encoding="utf-8")

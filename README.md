@@ -6,6 +6,9 @@ This repo is set up for:
 - Data/images copied separately (external SSD)
 - Annotation schema v2 (`isbird` per bbox, no manual `image_status`)
 
+For a full TrueNAS-focused deployment (app stack on TrueNAS, external ML backend), see:
+- `DEPLOYMENT.md`
+
 ## 1) Prepare GitHub repo (one-time)
 
 `gh` CLI is not installed in this workspace, so use either GitHub web UI or git commands below.

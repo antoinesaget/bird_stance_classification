@@ -71,3 +71,60 @@ def test_migration_removes_image_status_and_injects_isbird(tmp_path: pathlib.Pat
     isbird_items = [item for item in result if item.get("from_name") == "isbird"]
     assert len(isbird_items) == 1
     assert isbird_items[0]["value"]["choices"] == ["yes"]
+
+
+def test_migration_reimport_safe_strips_prediction_ids(tmp_path: pathlib.Path) -> None:
+    src = tmp_path / "old_export.json"
+    dst = tmp_path / "new_export_reimport_safe.json"
+
+    payload = [
+        {
+            "id": 12,
+            "data": {"image": "/data/birds_project/raw_images/v1/abc.jpg"},
+            "predictions": [999],
+            "drafts": [{"id": 1, "result": []}],
+            "annotations": [
+                {
+                    "id": 1,
+                    "result": [
+                        {
+                            "id": "r_12_000",
+                            "type": "rectanglelabels",
+                            "from_name": "bird_bbox",
+                            "to_name": "image",
+                            "value": {"x": 1, "y": 2, "width": 3, "height": 4, "rectanglelabels": ["Bird"]},
+                        },
+                        {
+                            "id": "img_12_image_status",
+                            "type": "choices",
+                            "from_name": "image_status",
+                            "to_name": "image",
+                            "value": {"choices": ["has_usable_birds"]},
+                        },
+                    ],
+                    "was_cancelled": False,
+                    "ground_truth": False,
+                }
+            ],
+        }
+    ]
+    src.write_text(json.dumps(payload), encoding="utf-8")
+
+    cmd = [
+        sys.executable,
+        str(REPO_ROOT / "scripts" / "migrate_labelstudio_export_to_isbird.py"),
+        "--input-json",
+        str(src),
+        "--output-json",
+        str(dst),
+        "--reimport-safe",
+    ]
+    subprocess.run(cmd, check=True)
+
+    out = json.loads(dst.read_text(encoding="utf-8"))
+    assert len(out) == 1
+    assert "predictions" not in out[0]
+    assert "drafts" not in out[0]
+    result = out[0]["annotations"][0]["result"]
+    assert not any(item.get("from_name") == "image_status" for item in result)
+    assert any(item.get("from_name") == "isbird" for item in result)
