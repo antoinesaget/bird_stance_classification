@@ -103,6 +103,10 @@ LABEL_STUDIO_ADRIEN_USERNAME='adrien' \
 This script is idempotent:
 - sets/rotates admin credentials
 - creates or updates Adrien account
+- verifies login works in-container for the active auth mode
+
+Optional: `LABEL_STUDIO_ADRIEN_LOGIN` overrides the login identifier used by auth checks and user updates.
+For email-based auth (`USERNAME_FIELD=email`), this value must be an email address.
 
 ## 7) Share with your biologist friend
 

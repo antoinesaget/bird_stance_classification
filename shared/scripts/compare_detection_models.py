@@ -28,7 +28,7 @@ import re
 import sys
 import time
 from collections import deque
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass, field
 from typing import Iterable, Sequence
 
@@ -819,6 +819,54 @@ def compose_pair_board(
     return board
 
 
+def compose_loading_board(
+    screen_ordinal: int,
+    max_screens: int,
+    elapsed_sec: float,
+    display_width: int,
+    display_height: int,
+) -> np.ndarray:
+    board = np.zeros((max(320, display_height), max(720, display_width), 3), dtype=np.uint8)
+    lines = [
+        "Preparing next comparison...",
+        f"Screen {screen_ordinal}/{max_screens} | Waited: {elapsed_sec:.1f}s",
+        "Startup can be slow on CPU with large models and high image resolution.",
+        "Press Esc to quit while loading.",
+    ]
+    y = 70
+    for line in lines:
+        cv2.putText(board, line, (20, y), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (240, 240, 240), 2, cv2.LINE_AA)
+        y += 52
+    return board
+
+
+def wait_for_screen_with_loading(
+    future: Future[PairScreen],
+    window_name: str,
+    screen_ordinal: int,
+    max_screens: int,
+    display_width: int,
+    display_height: int,
+) -> tuple[PairScreen | None, float]:
+    start = time.monotonic()
+    while True:
+        try:
+            return future.result(timeout=0.05), (time.monotonic() - start)
+        except FuturesTimeoutError:
+            elapsed = time.monotonic() - start
+            board = compose_loading_board(
+                screen_ordinal=screen_ordinal,
+                max_screens=max_screens,
+                elapsed_sec=elapsed,
+                display_width=display_width,
+                display_height=display_height,
+            )
+            cv2.imshow(window_name, board)
+            key = cv2.waitKey(1)
+            if key >= 0 and (key & 0xFF) == 27:
+                return None, elapsed
+
+
 def wait_for_choice() -> str:
     while True:
         key = cv2.waitKey(0)
@@ -1362,11 +1410,26 @@ def main() -> int:
 
                 future = prefetch_queue.popleft()
                 try:
-                    screen = future.result()
+                    screen, wait_sec = wait_for_screen_with_loading(
+                        future=future,
+                        window_name=args.window_name,
+                        screen_ordinal=(len(displayed_screens) + 1),
+                        max_screens=args.max_screens,
+                        display_width=args.display_max_width,
+                        display_height=args.display_max_height,
+                    )
                 except Exception as exc:  # noqa: BLE001
                     print(f"Screen preparation failed: {exc}", file=sys.stderr)
                     stop_reason = "screen_prepare_error"
                     break
+                if screen is None:
+                    stop_reason = "user_quit"
+                    break
+                if wait_sec >= 1.0:
+                    print(
+                        f"Prepared screen {screen.screen_index + 1}/{args.max_screens} in {wait_sec:.1f}s.",
+                        flush=True,
+                    )
 
                 displayed_screens.append(screen)
                 timings[screen.left_model_key].add(screen.left_metrics.inference_ms)

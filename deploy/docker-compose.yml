@@ -30,6 +30,8 @@ services:
       POSTGRE_HOST: postgres
       LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED: "true"
       LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT: /data
+      LABEL_STUDIO_HOST: ${LABEL_STUDIO_EXTERNAL_URL:-http://localhost:8080}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://localhost:8080}
       LABEL_STUDIO_USERNAME: ${LABEL_STUDIO_USERNAME:-admin@local}
       LABEL_STUDIO_PASSWORD: ${LABEL_STUDIO_PASSWORD:-change_me}
       # Keep user references stable in Data Manager task lists (avoids unresolved annotator->user refs in MST).
