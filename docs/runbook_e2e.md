@@ -28,7 +28,8 @@ uv run python /Users/antoine/bird_leg/scripts/prepare_labelstudio_import.py \
   --data-root "${BIRDS_DATA_ROOT}" \
   --site-id scolop2 \
   --count 50 \
-  --sample-mode first
+  --sample-mode first \
+  --image-relative-root raw_images
 ```
 
 ## 4) Start services
@@ -49,6 +50,30 @@ docker compose --env-file /Users/antoine/bird_leg/.env -f /Users/antoine/bird_le
 - Import `/Users/antoine/bird_leg/data/birds_project/labelstudio/imports/scolop2_sample50.tasks.json` for the sample batch, or import from `${BIRDS_DATA_ROOT}/raw_images/scolop2`.
 - Export annotations as `ann_vXXX.json` into `${BIRDS_DATA_ROOT}/labelstudio/exports`.
 
+### Optional: migrate old schema export to `isbird`
+```bash
+uv run python /Users/antoine/bird_leg/scripts/migrate_labelstudio_export_to_isbird.py \
+  --input-json /Users/antoine/bird_leg/project-1-at-2026-03-02-14-48-0edc627b.json \
+  --output-json "${BIRDS_DATA_ROOT}/labelstudio/exports/ann_v001_migrated_isbird.json" \
+  --overwrite
+```
+
+### Optional: build compressed mirror for annotation performance (pilot 1000)
+```bash
+uv run python /Users/antoine/bird_leg/scripts/build_annotation_image_mirror.py \
+  --data-root "${BIRDS_DATA_ROOT}" \
+  --site-id scolop2 \
+  --quality 60 \
+  --max-images 1000
+
+uv run python /Users/antoine/bird_leg/scripts/prepare_labelstudio_import.py \
+  --data-root "${BIRDS_DATA_ROOT}" \
+  --site-id scolop2 \
+  --count 1000 \
+  --sample-mode first \
+  --image-relative-root labelstudio/images_compressed/q60
+```
+
 ## 6) Normalize + crops + dataset
 ```bash
 uv run python /Users/antoine/bird_leg/scripts/export_normalize.py \
@@ -65,16 +90,14 @@ uv run python /Users/antoine/bird_leg/scripts/build_dataset.py \
   --data-root "${BIRDS_DATA_ROOT}"
 ```
 
-## 7) Train Model B and C
+## 7) Train Model B
 ```bash
 uv run python /Users/antoine/bird_leg/scripts/train_attributes.py \
   --dataset-dir "${BIRDS_DATA_ROOT}/derived/datasets/ds_v001" \
   --data-root "${BIRDS_DATA_ROOT}"
-
-uv run python /Users/antoine/bird_leg/scripts/train_image_status.py \
-  --annotation-version ann_v001 \
-  --data-root "${BIRDS_DATA_ROOT}"
 ```
+
+Model C `image_status` is deprecated in the active backend path.
 
 ## 8) Active learning inference and batch selection
 ```bash

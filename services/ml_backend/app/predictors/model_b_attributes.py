@@ -186,7 +186,7 @@ class AttributePredictor:
             substrate_conf = 0.50
             legs = "unsure"
             legs_conf = 0.5
-        elif behavior in {"resting", "backresting"} and substrate in {"ground", "water"}:
+        elif behavior in {"resting", "backresting"} and substrate in {"ground", "water", "unsure"}:
             if det.score >= 0.70:
                 legs = "two"
             elif det.score >= 0.52:
@@ -245,7 +245,7 @@ class AttributePredictor:
                 substrate_conf = min(substrate_conf, 0.50)
                 legs = "unsure"
                 legs_conf = min(legs_conf, 0.50)
-            elif not (behavior in {"resting", "backresting"} and substrate in {"ground", "water"}):
+            elif not (behavior in {"resting", "backresting"} and substrate in {"ground", "water", "unsure"}):
                 legs = "unsure"
                 legs_conf = min(legs_conf, 0.55)
 

@@ -8,13 +8,14 @@
   </View>
 
   <View style="width: 36%; min-width: 380px;">
-    <Header value="Image-Level Usability"/>
-    <Choices name="image_status" toName="image" required="true" choice="single-radio" showInline="true">
-      <Choice value="has_usable_birds" hotkey="a"/>
-      <Choice value="no_usable_birds" hotkey="q"/>
-    </Choices>
-
     <View visibleWhen="region-selected" whenTagName="bird_bbox">
+      <Header value="Is Bird"/>
+      <Choices name="isbird" toName="image" perRegion="true" whenTagName="bird_bbox" required="true" choice="single-radio" showInline="true">
+        <Choice value="yes" selected="true" hotkey="a"/>
+        <Choice value="no" hotkey="q"/>
+      </Choices>
+
+      <View visibleWhen="choice-selected" whenTagName="isbird" whenChoiceValue="yes">
       <Header value="Readability"/>
       <Choices name="readability" toName="image" perRegion="true" whenTagName="bird_bbox" required="true" choice="single-radio" showInline="true">
         <Choice value="readable" selected="true" hotkey="z"/>
@@ -32,7 +33,7 @@
       <View visibleWhen="choice-unselected" whenTagName="readability" whenChoiceValue="unreadable">
         <View visibleWhen="choice-unselected" whenTagName="specie" whenChoiceValue="incorrect">
           <Header value="Behavior"/>
-          <Choices name="behavior" toName="image" perRegion="true" whenTagName="bird_bbox" required="true" choice="single-radio" showInline="true">
+          <Choices name="behavior" toName="image" perRegion="true" whenTagName="bird_bbox" required="false" choice="single-radio" showInline="true">
             <Choice value="resting" hotkey="r"/>
             <Choice value="foraging" hotkey="f"/>
             <Choice value="flying" hotkey="v"/>
@@ -43,7 +44,7 @@
           </Choices>
 
           <Header value="Substrate"/>
-          <Choices name="substrate" toName="image" perRegion="true" whenTagName="bird_bbox" required="true" choice="single-radio" showInline="true">
+          <Choices name="substrate" toName="image" perRegion="true" whenTagName="bird_bbox" required="false" choice="single-radio" showInline="true">
             <Choice value="ground" hotkey="t"/>
             <Choice value="water" hotkey="g"/>
             <Choice value="air" hotkey="b"/>
@@ -51,7 +52,7 @@
           </Choices>
 
           <View visibleWhen="choice-selected" whenTagName="behavior" whenChoiceValue="resting,backresting">
-            <View visibleWhen="choice-selected" whenTagName="substrate" whenChoiceValue="ground,water">
+            <View visibleWhen="choice-selected" whenTagName="substrate" whenChoiceValue="ground,water,unsure">
               <Header value="Stance"/>
               <Choices name="legs" toName="image" perRegion="true" whenTagName="bird_bbox" required="false" choice="single-radio" showInline="true">
                 <Choice value="one" hotkey="y"/>
@@ -62,6 +63,7 @@
             </View>
           </View>
         </View>
+      </View>
       </View>
     </View>
   </View>

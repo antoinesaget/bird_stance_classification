@@ -8,19 +8,21 @@
   </View>
 
   <View style="width: 36%; min-width: 380px;">
-    <Header value="Image-Level Usability"/>
-    <Choices
-      name="image_status"
-      toName="image"
-      required="true"
-      choice="single-radio"
-      showInline="true">
-      <Choice value="has_usable_birds" hotkey="a"/>
-      <Choice value="no_usable_birds" hotkey="q"/>
-    </Choices>
-
     <View visibleWhen="region-selected" whenTagName="bird_bbox">
       <Header value="Per-Bird Core"/>
+      <Choices
+        name="isbird"
+        toName="image"
+        perRegion="true"
+        whenTagName="bird_bbox"
+        choice="single-radio"
+        required="true"
+        showInline="true">
+        <Choice value="yes" selected="true" hotkey="a"/>
+        <Choice value="no" hotkey="q"/>
+      </Choices>
+
+      <View visibleWhen="choice-selected" whenTagName="isbird" whenChoiceValue="yes">
       <Choices
         name="readability"
         toName="image"
@@ -56,7 +58,7 @@
             perRegion="true"
             whenTagName="bird_bbox"
             choice="single-radio"
-            required="true"
+            required="false"
             showInline="true">
             <Choice value="flying" hotkey="e"/>
             <Choice value="foraging" hotkey="r"/>
@@ -73,7 +75,7 @@
             perRegion="true"
             whenTagName="bird_bbox"
             choice="single-radio"
-            required="true"
+            required="false"
             showInline="true">
             <Choice value="ground" hotkey="g"/>
             <Choice value="water" hotkey="w"/>
@@ -82,8 +84,8 @@
           </Choices>
 
           <View visibleWhen="choice-selected" whenTagName="behavior" whenChoiceValue="resting,backresting">
-            <View visibleWhen="choice-selected" whenTagName="substrate" whenChoiceValue="ground,water">
-              <Header value="Legs (Resting on Ground/Water)"/>
+            <View visibleWhen="choice-selected" whenTagName="substrate" whenChoiceValue="ground,water,unsure">
+              <Header value="Legs (Resting on Ground/Water/Unsure)"/>
               <Choices
                 name="legs"
                 toName="image"
@@ -99,6 +101,7 @@
             </View>
           </View>
         </View>
+      </View>
       </View>
     </View>
   </View>

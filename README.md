@@ -4,6 +4,7 @@ This repo is set up for:
 - Label Studio + Postgres in Docker
 - ML backend on host (GPU via CUDA)
 - Data/images copied separately (external SSD)
+- Annotation schema v2 (`isbird` per bbox, no manual `image_status`)
 
 ## 1) Prepare GitHub repo (one-time)
 
@@ -86,6 +87,36 @@ In Label Studio, set ML backend URL to:
 
 ```text
 http://host.docker.internal:9091
+```
+
+## 5.1) Optional migration of old exports to schema v2
+
+```bash
+uv run python scripts/migrate_labelstudio_export_to_isbird.py \
+  --input-json project-1-at-2026-03-02-14-48-0edc627b.json \
+  --output-json "$BIRDS_DATA_ROOT/labelstudio/exports/ann_v001_migrated_isbird.json" \
+  --overwrite
+```
+
+## 5.2) Optional compressed image mirror (same resolution, q=60)
+
+```bash
+uv run python scripts/build_annotation_image_mirror.py \
+  --data-root "$BIRDS_DATA_ROOT" \
+  --site-id scolop2 \
+  --quality 60 \
+  --max-images 1000
+```
+
+Then generate imports pointing to compressed images:
+
+```bash
+uv run python scripts/prepare_labelstudio_import.py \
+  --data-root "$BIRDS_DATA_ROOT" \
+  --site-id scolop2 \
+  --count 1000 \
+  --sample-mode first \
+  --image-relative-root labelstudio/images_compressed/q60
 ```
 
 ## 6) Rotate admin password + create Adrien account

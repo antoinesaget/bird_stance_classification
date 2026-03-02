@@ -4,7 +4,7 @@ from birdsys.training.attributes import BEHAVIOR_TO_ID, READABILITY_TO_ID, SPECI
 
 
 def test_masks_for_unreadable() -> None:
-    masks = compute_head_masks(readability="unreadable", specie="correct", behavior="resting", substrate="ground")
+    masks = compute_head_masks(isbird="yes", readability="unreadable", specie="correct", behavior="resting", substrate="ground")
     assert masks.readability is True
     assert masks.specie is True
     assert masks.behavior is False
@@ -13,7 +13,7 @@ def test_masks_for_unreadable() -> None:
 
 
 def test_masks_for_readable_resting_ground() -> None:
-    masks = compute_head_masks(readability="readable", specie="correct", behavior="resting", substrate="ground")
+    masks = compute_head_masks(isbird="yes", readability="readable", specie="correct", behavior="resting", substrate="ground")
     assert masks.readability is True
     assert masks.specie is True
     assert masks.behavior is True
@@ -22,9 +22,18 @@ def test_masks_for_readable_resting_ground() -> None:
 
 
 def test_masks_for_specie_incorrect() -> None:
-    masks = compute_head_masks(readability="readable", specie="incorrect", behavior="resting", substrate="ground")
+    masks = compute_head_masks(isbird="yes", readability="readable", specie="incorrect", behavior="resting", substrate="ground")
     assert masks.readability is True
     assert masks.specie is True
+    assert masks.behavior is False
+    assert masks.substrate is False
+    assert masks.legs is False
+
+
+def test_masks_for_non_bird() -> None:
+    masks = compute_head_masks(isbird="no", readability="readable", specie="correct", behavior="resting", substrate="ground")
+    assert masks.readability is False
+    assert masks.specie is False
     assert masks.behavior is False
     assert masks.substrate is False
     assert masks.legs is False

@@ -30,8 +30,9 @@ class BirdRow:
     bbox_y_px: int | None
     bbox_w_px: int | None
     bbox_h_px: int | None
-    readability: str
-    specie: str
+    isbird: str
+    readability: str | None
+    specie: str | None
     behavior: str | None
     substrate: str | None
     legs: str | None
@@ -42,7 +43,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--export-json", required=True, help="Path to ann_vXXX.json export")
     parser.add_argument("--annotation-version", required=True, help="Annotation version, e.g. ann_v001")
     parser.add_argument("--data-root", default=os.getenv("BIRDS_DATA_ROOT", "/data/birds_project"))
-    parser.add_argument("--allow-missing-image-status", action="store_true")
     return parser.parse_args()
 
 
@@ -102,9 +102,9 @@ def bbox_from_region(region: dict[str, Any]) -> tuple[float, float, float, float
 def extract_task_rows(
     task: dict[str, Any],
     annotation_version: str,
-    allow_missing_image_status: bool,
-) -> tuple[dict[str, str], list[BirdRow]]:
+) -> tuple[dict[str, Any], list[BirdRow]]:
     image_id = image_id_from_task(task)
+    valid_isbird = {"yes", "no"}
     valid_readability = {"readable", "occluded", "unreadable"}
     valid_specie = {"correct", "incorrect", "unsure"}
     valid_behavior = {"flying", "foraging", "resting", "backresting", "preening", "display", "unsure"}
@@ -115,7 +115,6 @@ def extract_task_rows(
     annotation = annotations[0] if annotations else {"result": []}
     results: list[dict[str, Any]] = annotation.get("result") or []
 
-    image_status = None
     region_state: dict[str, dict[str, Any]] = {}
 
     for item in results:
@@ -132,16 +131,13 @@ def extract_task_rows(
             x, y, w, h = bbox_from_region(item)
             region_state[region_id] = {
                 "bbox": (x, y, w, h),
-                "readability": "readable",
-                "specie": "correct",
+                "isbird": None,
+                "readability": None,
+                "specie": None,
                 "behavior": None,
                 "substrate": None,
                 "legs": None,
             }
-            continue
-
-        if item_type == "choices" and from_name == "image_status":
-            image_status = first_choice(item)
             continue
 
         if item_type == "choices":
@@ -154,53 +150,72 @@ def extract_task_rows(
                     parent_id = candidate_id
             if parent_id and parent_id in region_state:
                 choice = first_choice(item)
-                if from_name in {"readability", "specie", "behavior", "substrate", "legs"}:
+                if from_name in {"isbird", "readability", "specie", "behavior", "substrate", "legs"}:
                     region_state[parent_id][from_name] = choice
 
-    if image_status is None:
-        if allow_missing_image_status:
-            image_status = "no_usable_birds"
-        else:
-            raise ValueError(f"Missing image_status in image {image_id}")
-
-    if image_status not in {"has_usable_birds", "no_usable_birds"}:
-        raise ValueError(f"Invalid image_status '{image_status}' for image {image_id}")
-
     birds: list[BirdRow] = []
+    image_usable = False
     for i, (region_id, state) in enumerate(sorted(region_state.items(), key=lambda it: it[0])):
-        readability = normalize_choice(state.get("readability")) or "readable"
-        specie = normalize_choice(state.get("specie")) or "unsure"
+        isbird = normalize_choice(state.get("isbird"))
+        if isbird is None:
+            raise ValueError(f"Missing isbird in image {image_id}, region {region_id}")
+        if isbird not in valid_isbird:
+            raise ValueError(f"Invalid isbird '{isbird}' for image {image_id}, region {region_id}")
+        if isbird == "yes":
+            image_usable = True
+
+        readability = normalize_choice(state.get("readability"))
+        specie = normalize_choice(state.get("specie"))
         behavior = normalize_choice(state.get("behavior"))
         substrate = normalize_choice(state.get("substrate"))
         legs = normalize_choice(state.get("legs"))
 
-        if readability not in valid_readability:
-            raise ValueError(f"Invalid readability '{readability}' for image {image_id}")
-        if specie not in valid_specie:
-            raise ValueError(f"Invalid specie '{specie}' for image {image_id}")
-        if behavior is not None and behavior not in valid_behavior:
-            raise ValueError(f"Invalid behavior '{behavior}' for image {image_id}")
-        if substrate is not None and substrate not in valid_substrate:
-            raise ValueError(f"Invalid substrate '{substrate}' for image {image_id}")
-        if legs is not None and legs not in valid_legs:
-            raise ValueError(f"Invalid legs '{legs}' for image {image_id}")
-
-        # Mask irrelevant downstream heads early so normalization is deterministic.
-        if readability == "unreadable" or specie == "incorrect":
+        if isbird == "no":
+            readability = None
+            specie = None
             behavior = None
             substrate = None
             legs = None
         else:
-            if behavior is None:
-                behavior = "unsure"
-            if substrate is None:
-                substrate = "unsure"
+            if readability is None:
+                raise ValueError(f"Missing readability for image {image_id}, region {region_id}")
+            if specie is None:
+                raise ValueError(f"Missing specie for image {image_id}, region {region_id}")
+            if readability not in valid_readability:
+                raise ValueError(f"Invalid readability '{readability}' for image {image_id}")
+            if specie not in valid_specie:
+                raise ValueError(f"Invalid specie '{specie}' for image {image_id}")
 
-            if behavior in {"resting", "backresting"} and substrate in {"ground", "water"}:
-                if legs is None:
-                    legs = "unsure"
-            else:
+            # Mask irrelevant downstream heads early so normalization is deterministic.
+            if readability == "unreadable" or specie == "incorrect":
+                behavior = None
+                substrate = None
                 legs = None
+            else:
+                if behavior is None:
+                    behavior = "unsure"
+                if substrate is None:
+                    substrate = "unsure"
+
+                if behavior not in valid_behavior:
+                    raise ValueError(f"Invalid behavior '{behavior}' for image {image_id}")
+                if substrate not in valid_substrate:
+                    raise ValueError(f"Invalid substrate '{substrate}' for image {image_id}")
+
+                if behavior in {"resting", "backresting"} and substrate in {"ground", "water", "unsure"}:
+                    if legs is None:
+                        legs = "unsure"
+                else:
+                    legs = None
+
+                if legs is not None and legs not in valid_legs:
+                    raise ValueError(f"Invalid legs '{legs}' for image {image_id}")
+
+        if isbird == "yes" and readability is None:
+            # Defensive check; the branch above should enforce this.
+            raise ValueError(f"Missing readability after normalization for image {image_id}, region {region_id}")
+        if isbird == "yes" and specie is None:
+            raise ValueError(f"Missing specie after normalization for image {image_id}, region {region_id}")
 
         x, y, w, h = state["bbox"]
         birds.append(
@@ -216,6 +231,7 @@ def extract_task_rows(
                 bbox_y_px=None,
                 bbox_w_px=None,
                 bbox_h_px=None,
+                isbird=isbird,
                 readability=readability,
                 specie=specie,
                 behavior=behavior,
@@ -227,7 +243,7 @@ def extract_task_rows(
     image_row = {
         "annotation_version": annotation_version,
         "image_id": image_id,
-        "image_status": image_status,
+        "image_usable": bool(image_usable),
     }
     return image_row, birds
 
@@ -277,7 +293,6 @@ def main() -> int:
         image_row, birds = extract_task_rows(
             task=task,
             annotation_version=args.annotation_version,
-            allow_missing_image_status=args.allow_missing_image_status,
         )
         image_rows.append(image_row)
         bird_rows.extend(birds)
@@ -300,6 +315,7 @@ def main() -> int:
                 "bbox_y_px",
                 "bbox_w_px",
                 "bbox_h_px",
+                "isbird",
                 "readability",
                 "specie",
                 "behavior",
@@ -317,29 +333,30 @@ def main() -> int:
 
     if not birds_df.empty:
         legs_relevant = (
-            birds_df["readability"].isin(["readable", "occluded"])
-            & (birds_df["specie"] != "incorrect")
+            (birds_df["isbird"] == "yes")
             & birds_df["behavior"].isin(["resting", "backresting"])
-            & birds_df["substrate"].isin(["ground", "water"])
+            & birds_df["substrate"].isin(["ground", "water", "unsure"])
         )
         mask_stats = {
             "total_birds": int(len(birds_df)),
-            "unreadable_rows": int((birds_df["readability"] == "unreadable").sum()),
-            "specie_incorrect_rows": int((birds_df["specie"] == "incorrect").sum()),
+            "isbird_yes_rows": int((birds_df["isbird"] == "yes").sum()),
+            "isbird_no_rows": int((birds_df["isbird"] == "no").sum()),
             "behavior_null_rows": int(birds_df["behavior"].isna().sum()),
             "substrate_null_rows": int(birds_df["substrate"].isna().sum()),
             "legs_null_rows": int(birds_df["legs"].isna().sum()),
             "legs_relevant_rows": int(legs_relevant.sum()),
+            "images_usable_true": int(images_df["image_usable"].astype(bool).sum()),
         }
     else:
         mask_stats = {
             "total_birds": 0,
-            "unreadable_rows": 0,
-            "specie_incorrect_rows": 0,
+            "isbird_yes_rows": 0,
+            "isbird_no_rows": 0,
             "behavior_null_rows": 0,
             "substrate_null_rows": 0,
             "legs_null_rows": 0,
             "legs_relevant_rows": 0,
+            "images_usable_true": 0,
         }
 
     print(f"tasks={len(payload)}")

@@ -6,12 +6,6 @@
       {
         "result": [
           {
-            "from_name": "image_status",
-            "to_name": "image",
-            "type": "choices",
-            "value": {"choices": ["has_usable_birds"]}
-          },
-          {
             "id": "r1",
             "from_name": "bird_bbox",
             "to_name": "image",
@@ -23,6 +17,13 @@
               "height": 15,
               "rectanglelabels": ["Bird"]
             }
+          },
+          {
+            "from_name": "isbird",
+            "to_name": "image",
+            "type": "choices",
+            "parentID": "r1",
+            "value": {"choices": ["yes"]}
           },
           {
             "from_name": "readability",
@@ -63,12 +64,6 @@
       {
         "result": [
           {
-            "from_name": "image_status",
-            "to_name": "image",
-            "type": "choices",
-            "value": {"choices": ["no_usable_birds"]}
-          },
-          {
             "id": "r2",
             "from_name": "bird_bbox",
             "to_name": "image",
@@ -80,6 +75,13 @@
               "height": 10,
               "rectanglelabels": ["Bird"]
             }
+          },
+          {
+            "from_name": "isbird",
+            "to_name": "image",
+            "type": "choices",
+            "parentID": "r2",
+            "value": {"choices": ["no"]}
           },
           {
             "from_name": "readability",

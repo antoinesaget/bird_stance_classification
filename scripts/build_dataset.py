@@ -160,12 +160,13 @@ def main() -> int:
             b.bbox_y,
             b.bbox_w,
             b.bbox_h,
+            b.isbird,
             b.readability,
             b.specie,
             b.behavior,
             b.substrate,
             b.legs,
-            i.image_status,
+            i.image_usable,
             m.filepath,
             m.site_id,
             abs(hash(coalesce(m.site_id, '') || ':' || b.image_id)) % 100 AS split_bucket,
@@ -203,13 +204,13 @@ def main() -> int:
         raise RuntimeError("val/test image leakage detected")
 
     label_counts = {}
-    for column in ["readability", "specie", "behavior", "substrate", "legs", "image_status"]:
+    for column in ["isbird", "readability", "specie", "behavior", "substrate", "legs", "image_usable"]:
         vc = df[column].fillna("<null>").value_counts().sort_index().to_dict()
         label_counts[column] = {str(k): int(v) for k, v in vc.items()}
 
     null_counts = {
         column: int(df[column].isna().sum())
-        for column in ["readability", "specie", "behavior", "substrate", "legs", "image_status", "filepath", "crop_path"]
+        for column in ["isbird", "readability", "specie", "behavior", "substrate", "legs", "image_usable", "filepath", "crop_path"]
     }
 
     manifest = {

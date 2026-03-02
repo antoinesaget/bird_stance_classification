@@ -2,7 +2,7 @@
 
 ## Sample batch import (50 images)
 1. Run:
-   `uv run python /Users/antoine/bird_leg/scripts/prepare_labelstudio_import.py --data-root "${BIRDS_DATA_ROOT}" --site-id scolop2 --count 50 --sample-mode first`
+   `uv run python /Users/antoine/bird_leg/scripts/prepare_labelstudio_import.py --data-root "${BIRDS_DATA_ROOT}" --site-id scolop2 --count 50 --sample-mode first --image-relative-root raw_images`
 2. In Label Studio, import:
    `/Users/antoine/bird_leg/data/birds_project/labelstudio/imports/scolop2_sample50.tasks.json`
 
@@ -28,24 +28,25 @@
 - `Auto-Accept Suggestions`: disabled in the labeling UI footer.
 
 ## Per-image workflow (new schema)
-1. Set `image_status`:
-   - `has_usable_birds`
-   - `no_usable_birds`
-2. Review and adjust Bird boxes.
-3. For each Bird region, in this order:
-   - `readability`: `readable` / `occluded` / `unreadable`
-   - `specie`: `correct` / `incorrect` / `unsure`
-   - if `readability != unreadable` and `specie != incorrect`:
-     - `behavior`: `flying` / `foraging` / `resting` / `backresting` / `preening` / `display` / `unsure`
-     - `substrate`: `ground` / `water` / `air` / `unsure`
-     - if `behavior in {resting, backresting}` and `substrate in {ground, water}`:
-       - `legs`: `one` / `two` / `unsure`
+1. Review and adjust Bird boxes.
+2. For each Bird region, in this order:
+   - `isbird`: `yes` / `no`
+   - if `isbird = yes`:
+     - `readability`: `readable` / `occluded` / `unreadable`
+     - `specie`: `correct` / `incorrect` / `unsure`
+     - if `readability != unreadable` and `specie != incorrect`:
+       - `behavior`: `flying` / `foraging` / `resting` / `backresting` / `preening` / `display` / `unsure` (optional in UI)
+       - `substrate`: `ground` / `water` / `air` / `unsure` (optional in UI)
+       - if `behavior in {resting, backresting}` and `substrate in {ground, water, unsure}`:
+         - `legs`: `one` / `two` / `unsure`
 
 ## Rules
-- `image_status`, `readability`, and `specie` are always required.
+- `isbird` is always required per bbox.
+- If `isbird=no`, all other per-bird fields are ignored.
+- If `isbird=yes`, `readability` and `specie` are required.
 - If `readability=unreadable`, other per-bird fields are irrelevant.
 - If `specie=incorrect`, other per-bird fields are irrelevant.
-- `legs` is only meaningful for resting/backresting on ground/water.
+- `legs` is only meaningful for resting/backresting on ground/water/unsure.
 
 ## Manual validation matrix (for each config variant)
 - `prefill_bbox_visible`: PASS/FAIL

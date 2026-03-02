@@ -25,8 +25,6 @@ def test_serializer_shapes_prediction() -> None:
         task_id=123,
         detections=[det],
         attributes=[attr],
-        image_status="has_usable_birds",
-        image_status_conf=0.77,
         model_version="test-v1",
     )
 
@@ -35,10 +33,11 @@ def test_serializer_shapes_prediction() -> None:
     assert isinstance(out["result"], list)
     assert any(item["type"] == "rectanglelabels" for item in out["result"])
     assert any(item["from_name"] == "specie" for item in out["result"])
+    assert any(item["from_name"] == "isbird" for item in out["result"])
     assert any(item["from_name"] == "behavior" for item in out["result"])
     assert any(item["from_name"] == "substrate" for item in out["result"])
     assert any(item["from_name"] == "legs" for item in out["result"])
-    assert any(item["from_name"] == "image_status" for item in out["result"])
+    assert not any(item["from_name"] == "image_status" for item in out["result"])
 
 
 def test_serializer_hides_irrelevant_conditional_fields() -> None:
@@ -60,17 +59,42 @@ def test_serializer_hides_irrelevant_conditional_fields() -> None:
         task_id=321,
         detections=[det],
         attributes=[attr],
-        image_status="no_usable_birds",
-        image_status_conf=0.9,
         model_version="test-v2",
     )
 
     from_names = [item["from_name"] for item in out["result"]]
     assert "readability" in from_names
     assert "specie" in from_names
+    assert "isbird" in from_names
     assert "behavior" not in from_names
     assert "substrate" not in from_names
     assert "legs" not in from_names
+
+
+def test_serializer_allows_legs_on_unsure_substrate() -> None:
+    det = Detection(x=0.1, y=0.2, w=0.3, h=0.4, score=0.88)
+    attr = AttributePrediction(
+        readability="readable",
+        readability_conf=0.9,
+        specie="correct",
+        specie_conf=0.8,
+        behavior="resting",
+        behavior_conf=0.6,
+        substrate="unsure",
+        substrate_conf=0.5,
+        legs="unsure",
+        legs_conf=0.5,
+    )
+
+    out = to_label_studio_prediction(
+        task_id=777,
+        detections=[det],
+        attributes=[attr],
+        model_version="test-v3",
+    )
+
+    from_names = [item["from_name"] for item in out["result"]]
+    assert "legs" in from_names
 
 
 def test_predict_response_contract_supports_both_keys() -> None:

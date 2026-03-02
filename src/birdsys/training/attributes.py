@@ -37,20 +37,23 @@ def normalize_choice(value: str | None) -> str | None:
 
 
 def compute_head_masks(
+    isbird: str | None,
     readability: str | None,
     specie: str | None,
     behavior: str | None,
     substrate: str | None,
 ) -> HeadMasks:
+    isbird_n = normalize_choice(isbird)
     readability_n = normalize_choice(readability)
     specie_n = normalize_choice(specie)
     behavior_n = normalize_choice(behavior)
     substrate_n = normalize_choice(substrate)
-    usable = readability_n in {"readable", "occluded"} and specie_n != "incorrect"
-    legs_relevant = usable and behavior_n in {"resting", "backresting"} and substrate_n in {"ground", "water"}
+    is_bird = isbird_n == "yes"
+    usable = is_bird and readability_n in {"readable", "occluded"} and specie_n != "incorrect"
+    legs_relevant = usable and behavior_n in {"resting", "backresting"} and substrate_n in {"ground", "water", "unsure"}
     return HeadMasks(
-        readability=True,
-        specie=True,
+        readability=is_bird,
+        specie=is_bird,
         behavior=usable,
         substrate=usable,
         legs=legs_relevant,

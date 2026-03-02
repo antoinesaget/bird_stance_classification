@@ -81,18 +81,27 @@ class BirdAttributeDataset(Dataset):
         with Image.open(image_path).convert("RGB") as img:
             x = self.transform(img)
 
+        def _text(column: str) -> str:
+            value = row.get(column)
+            if value is None:
+                return ""
+            if isinstance(value, float) and np.isnan(value):
+                return ""
+            return str(value)
+
         labels = encode_labels(
-            readability=str(row.get("readability") or ""),
-            specie=str(row.get("specie") or ""),
-            behavior=str(row.get("behavior") or ""),
-            substrate=str(row.get("substrate") or ""),
-            legs=str(row.get("legs") or ""),
+            readability=_text("readability"),
+            specie=_text("specie"),
+            behavior=_text("behavior"),
+            substrate=_text("substrate"),
+            legs=_text("legs"),
         )
         masks = compute_head_masks(
-            readability=str(row.get("readability") or ""),
-            specie=str(row.get("specie") or ""),
-            behavior=str(row.get("behavior") or ""),
-            substrate=str(row.get("substrate") or ""),
+            isbird=_text("isbird"),
+            readability=_text("readability"),
+            specie=_text("specie"),
+            behavior=_text("behavior"),
+            substrate=_text("substrate"),
         )
 
         return {
@@ -157,6 +166,7 @@ def pick_device(requested: str) -> torch.device:
 def sanitize_df(df: pd.DataFrame) -> pd.DataFrame:
     required = [
         "crop_path",
+        "isbird",
         "readability",
         "specie",
         "behavior",
@@ -299,7 +309,7 @@ def dataframe_from_split(path: pathlib.Path, smoke: bool) -> pd.DataFrame:
 
 def summarize_labels(frame: pd.DataFrame) -> dict[str, dict[str, int]]:
     out: dict[str, dict[str, int]] = {}
-    for column in ["readability", "specie", "behavior", "substrate", "legs"]:
+    for column in ["isbird", "readability", "specie", "behavior", "substrate", "legs"]:
         vc = frame[column].fillna("<null>").value_counts().sort_index().to_dict()
         out[column] = {str(k): int(v) for k, v in vc.items()}
     return out

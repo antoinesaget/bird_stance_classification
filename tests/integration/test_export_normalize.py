@@ -37,19 +37,23 @@ def test_export_normalize_masks_and_defaults(tmp_path: pathlib.Path) -> None:
     assert len(birds) == 2
 
     standing = birds[birds["image_id"] == "00001"].iloc[0]
-    unreadable = birds[birds["image_id"] == "00002"].iloc[0]
+    non_bird = birds[birds["image_id"] == "00002"].iloc[0]
 
+    assert standing["isbird"] == "yes"
     assert standing["readability"] == "readable"
     assert standing["specie"] == "correct"
     assert standing["behavior"] == "resting"
     assert standing["substrate"] == "ground"
     assert standing["legs"] == "unsure"  # default for resting+ground when missing
+    assert bool(images[images["image_id"] == "00001"].iloc[0]["image_usable"]) is True
 
-    assert unreadable["readability"] == "unreadable"
-    assert unreadable["specie"] == "unsure"
-    assert pd.isna(unreadable["behavior"])
-    assert pd.isna(unreadable["substrate"])
-    assert pd.isna(unreadable["legs"])
+    assert non_bird["isbird"] == "no"
+    assert pd.isna(non_bird["readability"])
+    assert pd.isna(non_bird["specie"])
+    assert pd.isna(non_bird["behavior"])
+    assert pd.isna(non_bird["substrate"])
+    assert pd.isna(non_bird["legs"])
+    assert bool(images[images["image_id"] == "00002"].iloc[0]["image_usable"]) is False
 
 
 def test_export_normalize_supports_region_id_linked_choices(tmp_path: pathlib.Path) -> None:
@@ -75,6 +79,15 @@ def test_export_normalize_supports_region_id_linked_choices(tmp_path: pathlib.Pa
                                 "height": 40.0,
                                 "rotation": 0,
                                 "rectanglelabels": ["Bird"],
+                            },
+                        },
+                        {
+                            "id": "r_1_000",
+                            "from_name": "isbird",
+                            "to_name": "image",
+                            "type": "choices",
+                            "value": {
+                                "choices": ["yes"],
                             },
                         },
                         {
@@ -130,29 +143,8 @@ def test_export_normalize_supports_region_id_linked_choices(tmp_path: pathlib.Pa
                                 "width": 30.0,
                                 "height": 40.0,
                                 "rotation": 0,
-                                "choices": ["ground"],
+                                "choices": ["unsure"],
                             },
-                        },
-                        {
-                            "id": "r_1_000",
-                            "from_name": "legs",
-                            "to_name": "image",
-                            "type": "choices",
-                            "value": {
-                                "x": 10.0,
-                                "y": 20.0,
-                                "width": 30.0,
-                                "height": 40.0,
-                                "rotation": 0,
-                                "choices": ["two"],
-                            },
-                        },
-                        {
-                            "id": "img_1_image_status",
-                            "from_name": "image_status",
-                            "to_name": "image",
-                            "type": "choices",
-                            "value": {"choices": ["has_usable_birds"]},
                         },
                     ]
                 }
@@ -177,11 +169,12 @@ def test_export_normalize_supports_region_id_linked_choices(tmp_path: pathlib.Pa
     birds = pd.read_parquet(birds_path)
     assert len(birds) == 1
     row = birds.iloc[0]
+    assert row["isbird"] == "yes"
     assert row["readability"] == "readable"
     assert row["specie"] == "correct"
     assert row["behavior"] == "resting"
-    assert row["substrate"] == "ground"
-    assert row["legs"] == "two"
+    assert row["substrate"] == "unsure"
+    assert row["legs"] == "unsure"
 
 
 def test_export_normalize_masks_on_specie_incorrect(tmp_path: pathlib.Path) -> None:
@@ -207,6 +200,13 @@ def test_export_normalize_masks_on_specie_incorrect(tmp_path: pathlib.Path) -> N
                                 "height": 20.0,
                                 "rectanglelabels": ["Bird"],
                             },
+                        },
+                        {
+                            "id": "r_7_000",
+                            "from_name": "isbird",
+                            "to_name": "image",
+                            "type": "choices",
+                            "value": {"choices": ["yes"]},
                         },
                         {
                             "id": "r_7_000",
@@ -243,13 +243,6 @@ def test_export_normalize_masks_on_specie_incorrect(tmp_path: pathlib.Path) -> N
                             "type": "choices",
                             "value": {"choices": ["one"]},
                         },
-                        {
-                            "id": "img_7_image_status",
-                            "from_name": "image_status",
-                            "to_name": "image",
-                            "type": "choices",
-                            "value": {"choices": ["has_usable_birds"]},
-                        },
                     ]
                 }
             ],
@@ -272,8 +265,41 @@ def test_export_normalize_masks_on_specie_incorrect(tmp_path: pathlib.Path) -> N
     birds = pd.read_parquet(data_root / "labelstudio" / "normalized" / "ann_v003" / "birds.parquet")
     assert len(birds) == 1
     row = birds.iloc[0]
+    assert row["isbird"] == "yes"
     assert row["readability"] == "readable"
     assert row["specie"] == "incorrect"
     assert pd.isna(row["behavior"])
     assert pd.isna(row["substrate"])
     assert pd.isna(row["legs"])
+
+
+def test_export_normalize_image_usable_false_without_bboxes(tmp_path: pathlib.Path) -> None:
+    export_path = tmp_path / "ann_v004_no_bbox.json"
+    data_root = tmp_path / "data"
+
+    payload = [
+        {
+            "id": 1,
+            "data": {"image": "/data/birds_project/raw_images/scolop2/00010_651092999.jpg"},
+            "annotations": [{"result": []}],
+        }
+    ]
+    export_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    cmd = [
+        sys.executable,
+        str(REPO_ROOT / "scripts" / "export_normalize.py"),
+        "--export-json",
+        str(export_path),
+        "--annotation-version",
+        "ann_v004",
+        "--data-root",
+        str(data_root),
+    ]
+    subprocess.run(cmd, check=True)
+
+    images = pd.read_parquet(data_root / "labelstudio" / "normalized" / "ann_v004" / "images_labels.parquet")
+    birds = pd.read_parquet(data_root / "labelstudio" / "normalized" / "ann_v004" / "birds.parquet")
+    assert len(images) == 1
+    assert len(birds) == 0
+    assert bool(images.iloc[0]["image_usable"]) is False

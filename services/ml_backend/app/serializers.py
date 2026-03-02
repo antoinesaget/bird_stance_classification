@@ -9,8 +9,6 @@ def to_label_studio_prediction(
     task_id: int | str,
     detections: list[Detection],
     attributes: list[AttributePrediction],
-    image_status: str,
-    image_status_conf: float,
     model_version: str,
 ) -> dict:
     results = []
@@ -61,6 +59,7 @@ def to_label_studio_prediction(
             )
 
         # Always present core fields.
+        append_choice("isbird", float(det.score), "yes")
         append_choice("readability", attr.readability_conf, attr.readability)
         append_choice("specie", attr.specie_conf, attr.specie)
 
@@ -71,28 +70,17 @@ def to_label_studio_prediction(
             append_choice("behavior", attr.behavior_conf, attr.behavior)
             append_choice("substrate", attr.substrate_conf, attr.substrate)
 
-            # Stance (legs) visible only for resting/backresting on ground/water.
+            # Stance (legs) visible only for resting/backresting on ground/water/unsure.
             can_show_stance = (
                 attr.behavior in {"resting", "backresting"}
-                and attr.substrate in {"ground", "water"}
+                and attr.substrate in {"ground", "water", "unsure"}
             )
             if can_show_stance:
                 append_choice("legs", attr.legs_conf, attr.legs)
 
-    results.append(
-        {
-            "id": f"img_{task_id}_image_status",
-            "from_name": "image_status",
-            "to_name": "image",
-            "type": "choices",
-            "score": float(image_status_conf),
-            "value": {"choices": [image_status]},
-        }
-    )
-
     return {
         "task": task_id,
-        "score": float(image_status_conf),
+        "score": float(max((det.score for det in detections), default=0.0)),
         "model_version": model_version,
         "result": results,
     }
