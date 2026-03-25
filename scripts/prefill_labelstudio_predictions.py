@@ -162,7 +162,7 @@ def main() -> int:
                 imported_predictions += len(batch)
             imported_batches += 1
 
-    for task in task_pages(args.base_url, args.project_id, resolved_token, args.task_page_size):
+    for task in task_pages(args.base_url, args.project_id, args.api_token, args.task_page_size):
         scanned_tasks += 1
         if args.only_missing and int(task.get("total_predictions") or 0) > 0:
             skipped_existing += 1
