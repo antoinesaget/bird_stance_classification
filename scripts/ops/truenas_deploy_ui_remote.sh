@@ -58,7 +58,7 @@ JOB_ID="$(midclt call "${ACTION[@]}" "$(echo "$PAYLOAD_B64" | base64 -d)" | tr -
 
 for _ in $(seq 1 60); do
   JOB_STATE="$(
-    midclt call core.get_jobs "[[[\"id\",\"=\",${JOB_ID}]]]" | python3 -c '
+    midclt call core.get_jobs "[[\"id\",\"=\",${JOB_ID}]]" | python3 -c '
 import json
 import sys
 jobs = json.load(sys.stdin)
