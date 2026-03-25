@@ -3,7 +3,8 @@ set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
-require_cmd python3 uv
+require_cmd python3
+PYTHON_BIN="$(repo_python_bin)"
 
 ENV_FILE_REL="${ENV_FILE:-deploy/env/iats.env}"
 ENV_FILE_PATH="$(resolve_repo_path "$ENV_FILE_REL")"
@@ -29,7 +30,7 @@ case "$PIPELINE" in
       die "DATASET_DIR or DATASET_VERSION is required for TRAIN_PIPELINE=attributes"
     fi
 
-    CMD=(uv run python scripts/train_attributes.py --data-root "$BIRDS_DATA_ROOT" --dataset-dir "$DATASET_DIR")
+    CMD=("$PYTHON_BIN" scripts/train_attributes.py --data-root "$BIRDS_DATA_ROOT" --dataset-dir "$DATASET_DIR")
     if [[ "${TRAIN_SMOKE:-0}" == "1" ]]; then
       CMD+=(--smoke)
     fi
@@ -41,7 +42,7 @@ case "$PIPELINE" in
     ;;
   image-status)
     [[ -n "${ANNOTATION_VERSION:-}" ]] || die "ANNOTATION_VERSION is required for TRAIN_PIPELINE=image-status"
-    CMD=(uv run python scripts/train_image_status.py --data-root "$BIRDS_DATA_ROOT" --annotation-version "$ANNOTATION_VERSION")
+    CMD=("$PYTHON_BIN" scripts/train_image_status.py --data-root "$BIRDS_DATA_ROOT" --annotation-version "$ANNOTATION_VERSION")
     if [[ "${TRAIN_SMOKE:-0}" == "1" ]]; then
       CMD+=(--smoke)
     fi

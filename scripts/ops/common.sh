@@ -19,6 +19,15 @@ require_cmd() {
   done
 }
 
+repo_python_bin() {
+  if [[ -x "$REPO_ROOT/.venv/bin/python" ]]; then
+    printf '%s\n' "$REPO_ROOT/.venv/bin/python"
+    return
+  fi
+  command -v python3 >/dev/null 2>&1 || die "Missing required command: python3"
+  command -v python3
+}
+
 source_env() {
   local env_file="$1"
   [[ -f "$env_file" ]] || die "Missing env file: $env_file"

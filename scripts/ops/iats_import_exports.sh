@@ -50,6 +50,10 @@ rsync -az "${TRUENAS_HOST}:${TRUENAS_BIRDS_DATA_ROOT}/metadata/images.parquet" "
 
 if [[ "${NORMALIZE_ON_IATS:-1}" != "0" && -n "${ANNOTATION_VERSION:-}" ]]; then
   NORMALIZE_STEM="${EXPORT_STEM:-$ANNOTATION_VERSION}"
+  REMOTE_PYTHON="python3"
+  if ssh -o BatchMode=yes -o ConnectTimeout=15 "$IATS_HOST" "test -x '$IATS_REPO_ROOT/.venv/bin/python'"; then
+    REMOTE_PYTHON="$IATS_REPO_ROOT/.venv/bin/python"
+  fi
   ssh -o BatchMode=yes -o ConnectTimeout=15 "$IATS_HOST" \
-    "cd '$IATS_REPO_ROOT' && BIRDS_DATA_ROOT='$IATS_BIRDS_DATA_ROOT' uv run python scripts/export_normalize.py --export-json '$IATS_BIRDS_DATA_ROOT/labelstudio/exports/${NORMALIZE_STEM}.json' --annotation-version '$ANNOTATION_VERSION'"
+    "cd '$IATS_REPO_ROOT' && BIRDS_DATA_ROOT='$IATS_BIRDS_DATA_ROOT' '$REMOTE_PYTHON' scripts/export_normalize.py --export-json '$IATS_BIRDS_DATA_ROOT/labelstudio/exports/${NORMALIZE_STEM}.json' --annotation-version '$ANNOTATION_VERSION'"
 fi

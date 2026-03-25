@@ -3,7 +3,7 @@ set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
-require_cmd uv
+PYTHON_BIN="$(repo_python_bin)"
 
 ENV_FILE_REL="${ENV_FILE:-deploy/env/iats.env}"
 ENV_FILE_PATH="$(resolve_repo_path "$ENV_FILE_REL")"
@@ -21,7 +21,7 @@ else
 fi
 
 CMD=(
-  uv run python scripts/train_attributes.py
+  "$PYTHON_BIN" scripts/train_attributes.py
   --data-root "$BIRDS_DATA_ROOT"
   --dataset-dir "$DATASET_DIR"
   --train-split train

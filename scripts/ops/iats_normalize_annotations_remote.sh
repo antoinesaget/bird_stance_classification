@@ -3,7 +3,7 @@ set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
-require_cmd uv
+PYTHON_BIN="$(repo_python_bin)"
 
 ENV_FILE_REL="${ENV_FILE:-deploy/env/iats.env}"
 ENV_FILE_PATH="$(resolve_repo_path "$ENV_FILE_REL")"
@@ -27,7 +27,7 @@ fi
 [[ -f "$EXPORT_JSON_PATH" ]] || die "Missing export json: $EXPORT_JSON_PATH"
 
 CMD=(
-  uv run python scripts/export_normalize.py
+  "$PYTHON_BIN" scripts/export_normalize.py
   --data-root "$BIRDS_DATA_ROOT"
   --export-json "$EXPORT_JSON_PATH"
   --annotation-version "$ANNOTATION_VERSION"
