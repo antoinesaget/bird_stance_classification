@@ -25,7 +25,7 @@ TRUENAS_REMOTE_REPO_URL ?= $(PUBLIC_REPO_URL)
 	compose-config compose-up compose-down compose-ps run-ml-backend run-ml-backend-host stop-ml-backend-container \
 	iats-pull iats-sync-data iats-import-exports iats-train iats-promote-model iats-deploy-ml \
 	iats-normalize-annotations iats-build-attributes-dataset iats-train-attributes-cv iats-train-attributes-final iats-deploy-model-b \
-	truenas-pull truenas-export-annotations truenas-deploy-ui truenas-create-project truenas-prepare-lines-batch truenas-import-lines-batch \
+	truenas-pull truenas-export-annotations truenas-deploy-ui truenas-create-project truenas-prepare-lines-batch truenas-import-lines-batch truenas-prefill-lines-predictions \
 	smoke-remote labelstudio-bootstrap-users
 
 bootstrap:
@@ -165,6 +165,17 @@ truenas-import-lines-batch:
 	LINES_PROJECT_ID="$(LINES_PROJECT_ID)" LINES_TASKS_JSON="$(LINES_TASKS_JSON)" \
 	LINES_IMPORT_REPORT_OUT="$(LINES_IMPORT_REPORT_OUT)" \
 	"$(REPO_ROOT)/scripts/ops/remote_repo_exec.sh" "$(TRUENAS_HOST)" "$(TRUENAS_REPO_ROOT)" scripts/ops/truenas_import_lines_batch_remote.sh
+
+truenas-prefill-lines-predictions:
+	DEPLOY_BRANCH="$(DEPLOY_BRANCH)" REMOTE_REPO_URL="$(TRUENAS_REMOTE_REPO_URL)" \
+	LINES_DATA_ROOT="$(LINES_DATA_ROOT)" LINES_IMPORT_RELATIVE_ROOT="$(LINES_IMPORT_RELATIVE_ROOT)" \
+	LINES_SAMPLE_SIZE="$(LINES_SAMPLE_SIZE)" LINES_SAMPLE_SEED="$(LINES_SAMPLE_SEED)" \
+	LINES_JPEG_QUALITY="$(LINES_JPEG_QUALITY)" LINES_BATCH_NAME="$(LINES_BATCH_NAME)" \
+	LINES_PROJECT_ID="$(LINES_PROJECT_ID)" LINES_ML_BACKEND_URL="$(LINES_ML_BACKEND_URL)" \
+	LINES_TASK_PAGE_SIZE="$(LINES_TASK_PAGE_SIZE)" LINES_PREDICT_BATCH_SIZE="$(LINES_PREDICT_BATCH_SIZE)" \
+	LINES_PREDICTION_IMPORT_BATCH_SIZE="$(LINES_PREDICTION_IMPORT_BATCH_SIZE)" LINES_ONLY_MISSING="$(LINES_ONLY_MISSING)" \
+	LINES_LIMIT="$(LINES_LIMIT)" LINES_PREDICTION_REPORT_OUT="$(LINES_PREDICTION_REPORT_OUT)" \
+	"$(REPO_ROOT)/scripts/ops/remote_repo_exec.sh" "$(TRUENAS_HOST)" "$(TRUENAS_REPO_ROOT)" scripts/ops/truenas_prefill_lines_predictions_remote.sh
 
 smoke-remote:
 	IATS_HOST="$(IATS_HOST)" TRUENAS_HOST="$(TRUENAS_HOST)" \
