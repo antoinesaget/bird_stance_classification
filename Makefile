@@ -25,7 +25,7 @@ TRUENAS_REMOTE_REPO_URL ?= $(PUBLIC_REPO_URL)
 	compose-config compose-up compose-down compose-ps run-ml-backend run-ml-backend-host stop-ml-backend-container \
 	iats-pull iats-sync-data iats-import-exports iats-train iats-promote-model iats-deploy-ml \
 	iats-normalize-annotations iats-build-attributes-dataset iats-train-attributes-cv iats-train-attributes-final iats-deploy-model-b \
-	truenas-pull truenas-export-annotations truenas-deploy-ui truenas-create-project \
+	truenas-pull truenas-export-annotations truenas-deploy-ui truenas-create-project truenas-prepare-lines-batch truenas-import-lines-batch \
 	smoke-remote labelstudio-bootstrap-users
 
 bootstrap:
@@ -146,6 +146,25 @@ truenas-create-project:
 	SOURCE_PROJECT_ID="$(SOURCE_PROJECT_ID)" TARGET_PROJECT_TITLE="$(TARGET_PROJECT_TITLE)" \
 	LABEL_STUDIO_ML_BACKEND_URL="$(LABEL_STUDIO_ML_BACKEND_URL)" LABEL_STUDIO_ML_TITLE="$(LABEL_STUDIO_ML_TITLE)" \
 	"$(REPO_ROOT)/scripts/ops/remote_repo_exec.sh" "$(TRUENAS_HOST)" "$(TRUENAS_REPO_ROOT)" scripts/ops/truenas_create_project_remote.sh
+
+truenas-prepare-lines-batch:
+	DEPLOY_BRANCH="$(DEPLOY_BRANCH)" REMOTE_REPO_URL="$(TRUENAS_REMOTE_REPO_URL)" \
+	LINES_DATA_ROOT="$(LINES_DATA_ROOT)" LINES_SOURCE_RELATIVE_ROOT="$(LINES_SOURCE_RELATIVE_ROOT)" \
+	LINES_IMPORT_RELATIVE_ROOT="$(LINES_IMPORT_RELATIVE_ROOT)" LINES_SAMPLE_SIZE="$(LINES_SAMPLE_SIZE)" \
+	LINES_SAMPLE_MODE="$(LINES_SAMPLE_MODE)" LINES_SAMPLE_SEED="$(LINES_SAMPLE_SEED)" \
+	LINES_JPEG_QUALITY="$(LINES_JPEG_QUALITY)" LINES_MIRROR_RELATIVE_ROOT="$(LINES_MIRROR_RELATIVE_ROOT)" \
+	LINES_DATASET_NAME="$(LINES_DATASET_NAME)" LINES_BATCH_NAME="$(LINES_BATCH_NAME)" \
+	LINES_RECURSIVE="$(LINES_RECURSIVE)" OVERWRITE="$(OVERWRITE)" \
+	"$(REPO_ROOT)/scripts/ops/remote_repo_exec.sh" "$(TRUENAS_HOST)" "$(TRUENAS_REPO_ROOT)" scripts/ops/truenas_prepare_lines_batch_remote.sh
+
+truenas-import-lines-batch:
+	DEPLOY_BRANCH="$(DEPLOY_BRANCH)" REMOTE_REPO_URL="$(TRUENAS_REMOTE_REPO_URL)" \
+	LINES_DATA_ROOT="$(LINES_DATA_ROOT)" LINES_IMPORT_RELATIVE_ROOT="$(LINES_IMPORT_RELATIVE_ROOT)" \
+	LINES_SAMPLE_SIZE="$(LINES_SAMPLE_SIZE)" LINES_SAMPLE_SEED="$(LINES_SAMPLE_SEED)" \
+	LINES_JPEG_QUALITY="$(LINES_JPEG_QUALITY)" LINES_BATCH_NAME="$(LINES_BATCH_NAME)" \
+	LINES_PROJECT_ID="$(LINES_PROJECT_ID)" LINES_TASKS_JSON="$(LINES_TASKS_JSON)" \
+	LINES_IMPORT_REPORT_OUT="$(LINES_IMPORT_REPORT_OUT)" \
+	"$(REPO_ROOT)/scripts/ops/remote_repo_exec.sh" "$(TRUENAS_HOST)" "$(TRUENAS_REPO_ROOT)" scripts/ops/truenas_import_lines_batch_remote.sh
 
 smoke-remote:
 	IATS_HOST="$(IATS_HOST)" TRUENAS_HOST="$(TRUENAS_HOST)" \
