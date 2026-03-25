@@ -214,7 +214,8 @@ def extract_task_rows(
     for i, (region_id, state) in enumerate(sorted(region_state.items(), key=lambda it: it[0])):
         isbird = normalize_choice(state.get("isbird"))
         if isbird is None:
-            raise ValueError(f"Missing isbird in image {image_id}, region {region_id}")
+            isbird = "yes"
+            migration_stats["assumed_isbird_yes_missing_flag"] += 1
         if isbird not in valid_isbird:
             raise ValueError(f"Invalid isbird '{isbird}' for image {image_id}, region {region_id}")
         if isbird == "yes":
@@ -357,6 +358,7 @@ def main() -> int:
         "tasks_total": len(payload),
         "tasks_with_annotations": 0,
         "tasks_with_cancelled_annotations": 0,
+        "assumed_isbird_yes_missing_flag": 0,
         "mapped_ground_to_bare_ground": 0,
         "mapped_legacy_one_to_unipedal": 0,
         "mapped_legacy_two_to_bipedal": 0,
