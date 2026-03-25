@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import time
 import urllib.parse
@@ -22,22 +23,60 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def decode_jwt_payload(token: str) -> dict | None:
+    if token.count(".") != 2:
+        return None
+    _, payload_b64, _ = token.split(".", 2)
+    padding = "=" * (-len(payload_b64) % 4)
+    try:
+        return json.loads(base64.urlsafe_b64decode(payload_b64 + padding).decode("utf-8"))
+    except Exception:
+        return None
+
+
+def resolve_api_token(base_url: str, api_token: str) -> str:
+    payload = decode_jwt_payload(api_token)
+    if not payload or payload.get("token_type") != "refresh":
+        return api_token
+    response = request_json(
+        base_url,
+        "/api/token/refresh/",
+        api_token="",
+        method="POST",
+        payload={"refresh": api_token},
+        authorization="",
+    )
+    access_token = response.get("access")
+    if not access_token:
+        raise RuntimeError("Label Studio token refresh did not return an access token")
+    return access_token
+
+
 def auth_header(api_token: str) -> str:
     # Label Studio uses JWT access tokens with Bearer auth when JWT token auth is enabled.
     return f"Bearer {api_token}" if api_token.count(".") == 2 else f"Token {api_token}"
 
 
-def request_json(base_url: str, path: str, api_token: str, *, method: str = "GET", payload: dict | None = None) -> dict | list:
+def request_json(
+    base_url: str,
+    path: str,
+    api_token: str,
+    *,
+    method: str = "GET",
+    payload: dict | None = None,
+    authorization: str | None = None,
+) -> dict | list:
     body = None if payload is None else json.dumps(payload).encode("utf-8")
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if authorization is None:
+        authorization = auth_header(api_token) if api_token else ""
+    if authorization:
+        headers["Authorization"] = authorization
     request = urllib.request.Request(
         urllib.parse.urljoin(base_url.rstrip("/") + "/", path.lstrip("/")),
         data=body,
         method=method,
-        headers={
-            "Authorization": auth_header(api_token),
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
+        headers=headers,
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         return json.load(response)
@@ -64,10 +103,11 @@ def main() -> int:
     args = parse_args()
     output_path = Path(args.output).expanduser().resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    resolved_token = resolve_api_token(args.base_url, args.api_token)
 
     if args.download_all_tasks:
         query = urllib.parse.urlencode({"exportType": "JSON", "download_all_tasks": "true"})
-        payload = download_bytes(args.base_url, f"/api/projects/{args.project_id}/export?{query}", args.api_token)
+        payload = download_bytes(args.base_url, f"/api/projects/{args.project_id}/export?{query}", resolved_token)
         output_path.write_bytes(payload)
         metadata = {
             "project_id": args.project_id,
@@ -85,7 +125,7 @@ def main() -> int:
     snapshot = request_json(
         args.base_url,
         f"/api/projects/{args.project_id}/exports/",
-        args.api_token,
+        resolved_token,
         method="POST",
         payload=create_payload,
     )
@@ -94,12 +134,12 @@ def main() -> int:
         raise RuntimeError("Label Studio export creation returned no snapshot id")
 
     started = time.monotonic()
-    current = request_json(args.base_url, f"/api/projects/{args.project_id}/exports/{snapshot_id}", args.api_token)
+    current = request_json(args.base_url, f"/api/projects/{args.project_id}/exports/{snapshot_id}", resolved_token)
     while current.get("status") not in {"completed", "failed"}:
         if time.monotonic() - started > args.timeout_seconds:
             raise TimeoutError(f"Timed out waiting for snapshot {snapshot_id}")
         time.sleep(5)
-        current = request_json(args.base_url, f"/api/projects/{args.project_id}/exports/{snapshot_id}", args.api_token)
+        current = request_json(args.base_url, f"/api/projects/{args.project_id}/exports/{snapshot_id}", resolved_token)
 
     if current.get("status") != "completed":
         raise RuntimeError(f"Snapshot {snapshot_id} finished with status {current.get('status')!r}")
@@ -108,7 +148,7 @@ def main() -> int:
     payload = download_bytes(
         args.base_url,
         f"/api/projects/{args.project_id}/exports/{snapshot_id}/download?{query}",
-        args.api_token,
+        resolved_token,
     )
     output_path.write_bytes(payload)
     metadata = {
