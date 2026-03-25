@@ -31,5 +31,5 @@ CMD=(
   --report-out "$REPORT_OUT"
 )
 
-printf '[ops] %s\n' "${CMD[*]}"
+log "Creating or updating Label Studio project '$TARGET_PROJECT_TITLE'"
 "${CMD[@]}"
