@@ -11,6 +11,8 @@
 .env
 .env.*
 !.env.example
+deploy/env/*.env
+!deploy/env/*.example
 
 # Python bytecode and caches
 __pycache__/
@@ -45,6 +47,7 @@ dist/
 output/
 notebooks/
 ML__*.csv
+full_migration_bundle/
 
 # Model and heavy ML artifacts
 *.pt

@@ -1,0 +1,59 @@
+from __future__ import annotations
+
+import py_compile
+import subprocess
+from pathlib import Path
+
+import yaml
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_compose_files_have_expected_services() -> None:
+    expected = {
+        REPO_ROOT / "deploy/docker-compose.local.yml": {"postgres", "label-studio", "ml-backend"},
+        REPO_ROOT / "deploy/docker-compose.iats-ml.yml": {"ml-backend"},
+        REPO_ROOT / "deploy/docker-compose.truenas.yml": {"postgres", "label-studio"},
+    }
+
+    for compose_path, services in expected.items():
+        data = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
+        assert set(data["services"]) == services
+
+
+def test_env_examples_exist() -> None:
+    for path in (
+        REPO_ROOT / "deploy/env/local.env.example",
+        REPO_ROOT / "deploy/env/iats.env.example",
+        REPO_ROOT / "deploy/env/truenas.env.example",
+    ):
+        assert path.is_file(), path
+
+
+def test_ops_shell_scripts_parse() -> None:
+    shell_scripts = [
+        REPO_ROOT / "scripts/ops/common.sh",
+        REPO_ROOT / "scripts/ops/local_compose.sh",
+        REPO_ROOT / "scripts/ops/remote_repo_exec.sh",
+        REPO_ROOT / "scripts/ops/git_pull_ff_only.sh",
+        REPO_ROOT / "scripts/ops/iats_deploy_ml_remote.sh",
+        REPO_ROOT / "scripts/ops/iats_train_remote.sh",
+        REPO_ROOT / "scripts/ops/iats_promote_model_remote.sh",
+        REPO_ROOT / "scripts/ops/truenas_deploy_ui_remote.sh",
+        REPO_ROOT / "scripts/ops/truenas_export_annotations_remote.sh",
+        REPO_ROOT / "scripts/ops/iats_sync_data.sh",
+        REPO_ROOT / "scripts/ops/iats_import_exports.sh",
+        REPO_ROOT / "scripts/ops/smoke_remote.sh",
+    ]
+
+    for script in shell_scripts:
+        subprocess.run(["bash", "-n", str(script)], check=True)
+
+
+def test_ops_python_scripts_compile() -> None:
+    for path in (
+        REPO_ROOT / "scripts/export_labelstudio_snapshot.py",
+        REPO_ROOT / "scripts/promote_model.py",
+    ):
+        py_compile.compile(str(path), doraise=True)

@@ -1,326 +1,214 @@
-# BirdLeg Deployment (TrueNAS App Stack + External ML Backend)
+# Deployment Runbook
 
-This guide is for deploying **everything except ML inference** on TrueNAS:
-- Label Studio (UI + API)
-- PostgreSQL (Label Studio DB)
-- local image/data storage for annotation tasks
+This repository now uses three explicit deployment surfaces:
 
-The ML backend stays on a separate machine and is connected from Label Studio by URL.
+- `deploy/docker-compose.local.yml`
+- `deploy/docker-compose.iats-ml.yml`
+- `deploy/docker-compose.truenas.yml`
 
-## 1) Is The Project Already Set Up For This?
+## 1) Host Roles
 
-Short answer: **yes, with one recommended compose file**.
+### `iats`
 
-- Label Studio already supports an external ML backend URL.
-- The repository now includes an app-only compose file:
-  - `deploy/docker-compose.app-only.yml`
-- This avoids the default `deploy/docker-compose.yml` dependency on the in-repo `ml-backend` service and avoids `MODEL_A_WEIGHTS` mount issues when you do not run ML in that stack.
+- Primary engineering checkout
+- Training and experiment host
+- Production ML backend host
+- Receives exports and training inputs from TrueNAS
 
-## 2) Target Architecture
+### TrueNAS
 
-- TrueNAS server:
-  - `birds-postgres` container
-  - `birds-label-studio` container
-  - mounted dataset containing BirdLeg data (`BIRDS_DATA_ROOT`)
-- External ML host (existing machine):
-  - runs `services/ml_backend` on private network (example `http://<ml-host>:9090`)
-- Label Studio calls ML host over network; annotators never call ML directly.
+- Stable Label Studio/Postgres/public UI host
+- Canonical `birds_project` storage host
+- Source of annotation exports
 
-## 3) What Must Exist In TrueNAS Storage
+### Local
 
-Pick one TrueNAS dataset root (example below):
+- Optional local debug stack
+- Low-priority orchestration only
 
-- `/mnt/<pool>/apps/bird_leg/repo` (git clone)
-- `/mnt/<pool>/apps/bird_leg/data/birds_project` (`BIRDS_DATA_ROOT`)
-- `/mnt/<pool>/apps/bird_leg/postgres` (optional bind mount for DB files)
-- `/mnt/<pool>/apps/bird_leg/labelstudio_data` (optional bind mount for LS app data)
-- `/mnt/<pool>/apps/bird_leg/backups` (optional backups)
+## 2) Required Env Files
 
-`BIRDS_DATA_ROOT` should contain at least:
-
-- `raw_images/<site_id>/...`
-- `labelstudio/imports/` (task json files)
-- `labelstudio/exports/` (annotation exports)
-- optional compressed mirrors:
-  - `labelstudio/images_compressed/q35/<site_id>/...`
-  - `labelstudio/images_compressed/q60/<site_id>/...`
-
-## 4) Clone And Prepare Repo On TrueNAS
+Create these untracked files from the examples:
 
 ```bash
-cd /mnt/<pool>/apps/bird_leg
-git clone <YOUR_GITHUB_REPO_URL> repo
-cd repo
+cp deploy/env/local.env.example deploy/env/local.env
 ```
 
-Create a deployment env file dedicated to TrueNAS:
+On `iats`:
 
 ```bash
-cat > .env.truenas <<'EOF'
-# Core
-BIRDS_DATA_ROOT=/mnt/<pool>/apps/bird_leg/data/birds_project
-
-# Label Studio
-LABEL_STUDIO_PORT=8080
-LABEL_STUDIO_HOST=https://<your-public-labelstudio-domain>
-LABEL_STUDIO_USERNAME=admin@local
-LABEL_STUDIO_PASSWORD=<strong-password>
-
-# Optional: use bind mounts instead of docker named volumes
-LABEL_STUDIO_PGDATA_DIR=/mnt/<pool>/apps/bird_leg/postgres
-LABEL_STUDIO_APP_DATA_DIR=/mnt/<pool>/apps/bird_leg/labelstudio_data
-EOF
+cp deploy/env/iats.env.example deploy/env/iats.env
 ```
 
-Create directories:
+On TrueNAS:
 
 ```bash
-mkdir -p /mnt/<pool>/apps/bird_leg/data/birds_project
-mkdir -p /mnt/<pool>/apps/bird_leg/postgres
-mkdir -p /mnt/<pool>/apps/bird_leg/labelstudio_data
-mkdir -p /mnt/<pool>/apps/bird_leg/backups
+cp deploy/env/truenas.env.example deploy/env/truenas.env
 ```
 
-## 5) Start App-Only Stack (No ML Container)
+Minimum important values:
+
+- `deploy/env/iats.env`
+  - `BIRDS_DATA_ROOT`
+  - `MODEL_A_BOOTSTRAP_WEIGHTS`
+  - `MODEL_A_SERVING_WEIGHTS`
+  - `MODEL_A_DEVICE=0`
+- `deploy/env/truenas.env`
+  - `TRUENAS_APP_ID=bird-stance-classification`
+  - `BIRDS_DATA_ROOT=/mnt/tank/media/birds_project`
+  - `LABEL_STUDIO_HOST=https://birds.ashs.live`
+  - `LABEL_STUDIO_API_TOKEN`
+  - `LABEL_STUDIO_PGDATA_DIR`
+  - `LABEL_STUDIO_APP_DATA_DIR`
+
+## 3) Clean Pull / Bootstrap
+
+Both managed pull commands fail on dirty worktrees.
 
 ```bash
-cd /mnt/<pool>/apps/bird_leg/repo
-docker compose --env-file .env.truenas -f deploy/docker-compose.app-only.yml up -d
-docker compose --env-file .env.truenas -f deploy/docker-compose.app-only.yml ps
+make iats-pull
+make truenas-pull
 ```
 
-Expected containers:
+Behavior:
 
-- `birds-postgres` (healthy)
-- `birds-label-studio` (up)
+- If the remote checkout does not exist, it is cloned first.
+- The checkout is moved to `DEPLOY_BRANCH` (default `main`).
+- The pull is `--ff-only`.
 
-Check logs:
+Fetch/clone uses the public HTTPS repo URL by default. This avoids the current GitHub SSH auth gap on `iats`.
+
+## 4) Stable Frontend Deploy On TrueNAS
+
+Pull the repo, then redeploy the existing custom app from the repo-owned compose file:
 
 ```bash
-docker logs --tail 200 birds-postgres
-docker logs --tail 200 birds-label-studio
+make truenas-pull
+make truenas-deploy-ui
 ```
 
-## 6) Migrate Existing App Data From Current Server (Optional But Typical)
+What the deploy does:
 
-If you are moving an existing project from another host (for example `iats`), migrate:
+- renders `deploy/docker-compose.truenas.yml`
+- updates or creates the `bird-stance-classification` custom app through `midclt app.update/app.create`
+- keeps Postgres and Label Studio state mounted from the existing TrueNAS config paths
+- mounts `deploy/overrides/localfiles_views.py` directly from the repo checkout instead of maintaining an ad hoc copy
 
-1. PostgreSQL DB
-2. Label Studio app data directory/volume
-3. `BIRDS_DATA_ROOT`
+## 5) Annotation Export Flow
 
-### 6.1 PostgreSQL Dump On Source
+Export project annotations from the stable TrueNAS UI into the canonical dataset tree:
 
 ```bash
-docker exec birds-postgres pg_dump -U labelstudio -d labelstudio > /tmp/labelstudio.sql
+make truenas-export-annotations PROJECT_ID=4 ANNOTATION_VERSION=ann_v001
 ```
 
-Copy to TrueNAS:
+This writes:
+
+- `${BIRDS_DATA_ROOT}/labelstudio/exports/ann_v001.json`
+- `${BIRDS_DATA_ROOT}/labelstudio/exports/ann_v001-info.json`
+
+The export uses the Label Studio API token from `deploy/env/truenas.env`.
+
+## 6) Training Input Sync To `iats`
+
+Full canonical training-input sync:
 
 ```bash
-scp /tmp/labelstudio.sql <truenas-user>@<truenas-host>:/mnt/<pool>/apps/bird_leg/backups/
+make iats-sync-data
 ```
 
-### 6.2 Restore On TrueNAS
+This syncs only the canonical input subsets:
 
-Stop Label Studio temporarily:
+- `raw_images/`
+- `metadata/`
+- `labelstudio/exports/`
+
+It intentionally does not overwrite `iats` model experiment outputs or derived training artifacts.
+
+Export-only sync for faster iteration:
 
 ```bash
-cd /mnt/<pool>/apps/bird_leg/repo
-docker compose --env-file .env.truenas -f deploy/docker-compose.app-only.yml stop label-studio
+make iats-import-exports PROJECT_ID=4 ANNOTATION_VERSION=ann_v001
 ```
 
-Restore dump:
+This can:
+
+- trigger the export on TrueNAS
+- copy the export JSON and metadata to `iats`
+- optionally run normalization on `iats`
+
+## 7) Training And Promotion On `iats`
+
+Example attribute training:
 
 ```bash
-cat /mnt/<pool>/apps/bird_leg/backups/labelstudio.sql | docker exec -i birds-postgres psql -U labelstudio -d labelstudio
+make iats-train TRAIN_PIPELINE=attributes DATASET_VERSION=ds_v001
 ```
 
-Restart Label Studio:
+Example image-status training:
 
 ```bash
-docker compose --env-file .env.truenas -f deploy/docker-compose.app-only.yml start label-studio
+make iats-train TRAIN_PIPELINE=image-status ANNOTATION_VERSION=ann_v001
 ```
 
-### 6.3 Copy `BIRDS_DATA_ROOT`
-
-Use `rsync` from source host to TrueNAS:
+Custom training command:
 
 ```bash
-rsync -av --progress <source-host>:/path/to/birds_project/ /mnt/<pool>/apps/bird_leg/data/birds_project/
+make iats-train TRAIN_CMD='uv run python path/to/custom_train.py --arg value'
 ```
 
-## 7) Configure Label Studio For Local Files (Critical)
+Promote a detector artifact into the served slot:
 
-`/data/local-files/?d=...` works only if each project has a Local Files storage path that prefixes your task paths.
+```bash
+make iats-promote-model PROMOTION_SOURCE=data/birds_project/models/detector/experiments/run_001/weights.pt
+```
 
-For mixed raw + compressed paths, set project local storage path to:
+Promotion writes:
 
-- `/data/birds_project`
+- `.../served/model_a/releases/<timestamp>/weights.pt`
+- `.../served/model_a/releases/<timestamp>/promotion.json`
+- `.../served/model_a/current/weights.pt`
+- `.../served/model_a/current/promotion.json`
 
-Do this in Label Studio UI:
+The promotion target then recreates the ML container so the live backend reloads the newly promoted weights.
 
-1. Project `Settings`
-2. `Cloud Storage` / `Storage` (Local files)
-3. Path: `/data/birds_project`
-4. Save and sync if needed
+## 8) ML Backend Deploy On `iats`
 
-If path is narrower (for example `/data/birds_project/raw_images/v1`), compressed task URLs will fail with 404.
+```bash
+make iats-deploy-ml
+```
 
-## 8) Connect External ML Backend
+What it does:
 
-In Label Studio project settings:
+- bootstraps the served weights slot from `MODEL_A_BOOTSTRAP_WEIGHTS` if needed
+- renders `deploy/docker-compose.iats-ml.yml`
+- deploys the GPU-backed ML container
+- validates `/health`
+- fails if `REQUIRE_NON_CPU_DEVICE=1` and the backend still reports `cpu`
 
-1. `Machine Learning`
-2. Add backend URL:
-   - `http://<ml-host>:9090` (or your TLS endpoint)
-3. Click `Check connection`
+Optional cleanup of the legacy `iats` UI containers:
+
+```bash
+make iats-deploy-ml IATS_STOP_LEGACY_UI=1
+```
+
+## 9) Verification
+
+Local smoke tests:
+
+```bash
+uv run pytest -q tests/smoke
+```
+
+Cross-host smoke checks:
+
+```bash
+make smoke-remote
+```
 
 Expected:
 
-- `/health` returns `status=UP`
-- `/setup` succeeds
-
-Notes:
-
-- ML host must be reachable from TrueNAS network.
-- Prefer private VLAN/LAN; do not expose ML backend publicly.
-
-## 9) Import Tasks (Raw Or Compressed)
-
-Task JSON files generated by repo scripts should use:
-
-- `/data/local-files/?d=birds_project/...`
-
-Examples:
-
-- raw: `birds_project/raw_images/v1/<image>.jpg`
-- compressed: `birds_project/labelstudio/images_compressed/q35/v1/<image>.jpg`
-
-Import via UI:
-
-1. Open project
-2. `Import`
-3. upload `*.tasks.json`
-
-## 10) Running Compression + Import Prep On TrueNAS
-
-If Python/`uv` tooling is available on TrueNAS host:
-
-```bash
-cd /mnt/<pool>/apps/bird_leg/repo
-uv sync --python 3.11
-```
-
-Build full compressed mirror:
-
-```bash
-uv run python scripts/build_annotation_image_mirror.py \
-  --data-root "$BIRDS_DATA_ROOT" \
-  --site-id v1 \
-  --quality 35 \
-  --max-images 0 \
-  --overwrite
-```
-
-Build import sample (simple deterministic):
-
-```bash
-uv run python scripts/prepare_labelstudio_import.py \
-  --data-root "$BIRDS_DATA_ROOT" \
-  --site-id v1 \
-  --count 500 \
-  --sample-mode random \
-  --seed 42 \
-  --image-relative-root labelstudio/images_compressed/q35 \
-  --output-prefix v1_q35_sample500
-```
-
-## 11) Health And Smoke Checks
-
-Container/network checks:
-
-```bash
-docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
-curl -sS http://127.0.0.1:${LABEL_STUDIO_PORT:-8080}/health || true
-```
-
-DB check:
-
-```bash
-docker exec birds-postgres psql -U labelstudio -d labelstudio -c "SELECT id, title FROM project ORDER BY id;"
-```
-
-Local-files path check (inside container):
-
-```bash
-docker exec birds-label-studio ls -l /data/birds_project
-```
-
-## 12) Operations Runbook
-
-Start:
-
-```bash
-docker compose --env-file .env.truenas -f deploy/docker-compose.app-only.yml up -d
-```
-
-Stop:
-
-```bash
-docker compose --env-file .env.truenas -f deploy/docker-compose.app-only.yml down
-```
-
-Upgrade app image:
-
-```bash
-docker compose --env-file .env.truenas -f deploy/docker-compose.app-only.yml pull
-docker compose --env-file .env.truenas -f deploy/docker-compose.app-only.yml up -d
-```
-
-## 13) Backup Strategy
-
-At minimum back up:
-
-1. PostgreSQL dump (`pg_dump`)
-2. `LABEL_STUDIO_APP_DATA_DIR` (or docker volume `labelstudio_data`)
-3. `BIRDS_DATA_ROOT`
-
-Recommended nightly DB backup:
-
-```bash
-ts=$(date +%Y%m%d_%H%M%S)
-docker exec birds-postgres pg_dump -U labelstudio -d labelstudio > /mnt/<pool>/apps/bird_leg/backups/labelstudio_${ts}.sql
-```
-
-## 14) Known Pitfalls
-
-1. Using `deploy/docker-compose.yml` without ML env vars:
-   - may fail due to unresolved `MODEL_A_WEIGHTS` bind mount.
-   - use `deploy/docker-compose.app-only.yml` on TrueNAS app stack.
-2. Local files 404 for compressed images:
-   - project storage path too narrow.
-   - set to `/data/birds_project`.
-3. ML backend unreachable:
-   - check routing/firewall from TrueNAS to ML host.
-4. Slow grid:
-   - use compressed mirror (`q35`/`q60`) and ensure browser cache is enabled (already handled by override).
-
-## 15) Minimal Command Sequence (Fresh Install)
-
-```bash
-cd /mnt/<pool>/apps/bird_leg
-git clone <YOUR_GITHUB_REPO_URL> repo
-cd repo
-cat > .env.truenas <<'EOF'
-BIRDS_DATA_ROOT=/mnt/<pool>/apps/bird_leg/data/birds_project
-LABEL_STUDIO_PORT=8080
-LABEL_STUDIO_HOST=https://<your-public-labelstudio-domain>
-LABEL_STUDIO_USERNAME=admin@local
-LABEL_STUDIO_PASSWORD=<strong-password>
-LABEL_STUDIO_PGDATA_DIR=/mnt/<pool>/apps/bird_leg/postgres
-LABEL_STUDIO_APP_DATA_DIR=/mnt/<pool>/apps/bird_leg/labelstudio_data
-EOF
-mkdir -p /mnt/<pool>/apps/bird_leg/data/birds_project /mnt/<pool>/apps/bird_leg/postgres /mnt/<pool>/apps/bird_leg/labelstudio_data
-docker compose --env-file .env.truenas -f deploy/docker-compose.app-only.yml up -d
-```
+- TrueNAS app state is `RUNNING` or `ACTIVE`
+- `https://birds.ashs.live/user/login/` returns successfully
+- `iats` ML backend returns `status=UP`
+- TrueNAS can reach the `iats` ML backend over the LAN

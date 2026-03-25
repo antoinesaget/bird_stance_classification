@@ -1,15 +1,14 @@
-# Legacy file. Use deploy/docker-compose.local.yml for local work or deploy/docker-compose.iats-ml.yml for iats ML serving.
 services:
   postgres:
     image: postgres:16
-    container_name: birds-postgres
+    container_name: birds-local-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: labelstudio
       POSTGRES_USER: labelstudio
       POSTGRES_PASSWORD: labelstudio
     volumes:
-      - labelstudio_pgdata:/var/lib/postgresql/data
+      - ${LABEL_STUDIO_PGDATA_DIR}:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U labelstudio -d labelstudio"]
       interval: 10s
@@ -18,10 +17,10 @@ services:
 
   label-studio:
     image: heartexlabs/label-studio:1.22.0
-    container_name: birds-label-studio
+    container_name: birds-local-label-studio
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "${LABEL_STUDIO_PORT:-8080}:8080"
     environment:
       DJANGO_DB: default
       POSTGRE_NAME: labelstudio
@@ -33,11 +32,8 @@ services:
       LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT: /data
       LABEL_STUDIO_USERNAME: ${LABEL_STUDIO_USERNAME:-admin@local}
       LABEL_STUDIO_PASSWORD: ${LABEL_STUDIO_PASSWORD:-change_me}
-      # Keep user references stable in Data Manager task lists (avoids unresolved annotator->user refs in MST).
       fflag_all_feat_utc_204_users_performance_improvements_in_dm_for_large_orgs: "false"
-      # Disable grid preview modal path; it can trigger heavy UI rerenders on grid-item clicks.
       fflag_feat_front_leap_1424_grid_preview_short: "false"
-      # Reduce Data Manager refresh churn from background polling.
       fflag_dev_disable_polling_killswitch_short: "true"
     depends_on:
       postgres:
@@ -45,32 +41,31 @@ services:
       ml-backend:
         condition: service_started
     volumes:
-      - ${BIRDS_DATA_ROOT:-/data/birds_project}:/data/birds_project
-      - labelstudio_data:/label-studio/data
-      # Override local-files response headers to improve browser thumbnail caching in grid view.
+      - ${BIRDS_DATA_ROOT}:/data/birds_project
+      - ${LABEL_STUDIO_APP_DATA_DIR}:/label-studio/data
       - ./overrides/localfiles_views.py:/label-studio/label_studio/io_storages/localfiles/views.py:ro
     extra_hosts:
-      # Required on Linux when Label Studio (container) calls ML backend on host at host.docker.internal.
       - "host.docker.internal:host-gateway"
 
   ml-backend:
     build:
       context: ..
       dockerfile: services/ml_backend/Dockerfile
-    container_name: birds-ml-backend
+    container_name: birds-local-ml-backend
     restart: unless-stopped
     environment:
       BIRDS_DATA_ROOT: /data/birds_project
       MODEL_A_WEIGHTS: /models/model_a/weights.pt
+      MODEL_A_DEVICE: ${MODEL_A_DEVICE:-cpu}
+      MODEL_A_IMGSZ: ${MODEL_A_IMGSZ:-1280}
+      MODEL_A_MAX_DET: ${MODEL_A_MAX_DET:-300}
+      MODEL_A_CONF: ${MODEL_A_CONF:-0.25}
+      MODEL_A_IOU: ${MODEL_A_IOU:-0.45}
       MODEL_B_CHECKPOINT: ${MODEL_B_CHECKPOINT:-}
       MODEL_C_CHECKPOINT: ${MODEL_C_CHECKPOINT:-}
-      BIRDS_LOG_LEVEL: INFO
+      BIRDS_LOG_LEVEL: ${BIRDS_LOG_LEVEL:-INFO}
     ports:
-      - "9090:9090"
+      - "${ML_BACKEND_PORT:-9090}:9090"
     volumes:
-      - ${BIRDS_DATA_ROOT:-/data/birds_project}:/data/birds_project
-      - ${MODEL_A_WEIGHTS}:/models/model_a/weights.pt:ro
-
-volumes:
-  labelstudio_pgdata:
-  labelstudio_data:
+      - ${BIRDS_DATA_ROOT}:/data/birds_project
+      - ${MODEL_A_SERVING_WEIGHTS}:/models/model_a/weights.pt:ro

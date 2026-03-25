@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import pathlib
@@ -55,13 +56,7 @@ model_b = AttributePredictor(checkpoint_path=env.model_b_checkpoint)
 def healthz() -> dict[str, Any]:
     return {
         "status": "ok",
-        "model_a_loaded": model_a is not None,
-        "model_b_loaded": model_b.model is not None,
-        "model_a_weights": str(env.model_a_weights),
-        "model_a_device": model_a.device if model_a is not None else None,
-        "model_a_imgsz": model_a.imgsz if model_a is not None else None,
-        "model_a_max_det": model_a.max_det if model_a is not None else None,
-        "model_b_checkpoint": str(env.model_b_checkpoint) if env.model_b_checkpoint else None,
+        **_model_health_payload(),
     }
 
 
@@ -70,13 +65,7 @@ def health() -> dict[str, Any]:
     # Label Studio ML backend validation calls /health.
     return {
         "status": "UP",
-        "model_a_loaded": model_a is not None,
-        "model_b_loaded": model_b.model is not None,
-        "model_a_weights": str(env.model_a_weights),
-        "model_a_device": model_a.device if model_a is not None else None,
-        "model_a_imgsz": model_a.imgsz if model_a is not None else None,
-        "model_a_max_det": model_a.max_det if model_a is not None else None,
-        "model_b_checkpoint": str(env.model_b_checkpoint) if env.model_b_checkpoint else None,
+        **_model_health_payload(),
     }
 
 
@@ -86,9 +75,7 @@ def setup(payload: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "status": "UP",
         "model_version": MODEL_VERSION,
-        "model_a_loaded": model_a is not None,
-        "model_b_loaded": model_b.model is not None,
-        "model_a_device": model_a.device if model_a is not None else None,
+        **_model_health_payload(),
     }
 
 
@@ -96,6 +83,45 @@ def setup(payload: dict[str, Any] | None = None) -> dict[str, Any]:
 def validate(payload: dict[str, Any]) -> dict[str, Any]:
     # Optional endpoint used by some ML backend flows.
     return {"valid": True}
+
+
+def _model_a_promotion_payload() -> dict[str, Any]:
+    metadata_path = env.model_a_weights.parent / "promotion.json"
+    if not metadata_path.exists():
+        return {
+            "model_a_release_id": None,
+            "model_a_source_path": None,
+            "model_a_source_sha256": None,
+        }
+
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):  # noqa: PERF203
+        logger.warning("Failed to parse promotion metadata at %s", metadata_path)
+        return {
+            "model_a_release_id": None,
+            "model_a_source_path": None,
+            "model_a_source_sha256": None,
+        }
+
+    return {
+        "model_a_release_id": payload.get("release_id"),
+        "model_a_source_path": payload.get("source_path"),
+        "model_a_source_sha256": payload.get("source_sha256"),
+    }
+
+
+def _model_health_payload() -> dict[str, Any]:
+    return {
+        "model_a_loaded": model_a is not None,
+        "model_b_loaded": model_b.model is not None,
+        "model_a_weights": str(env.model_a_weights),
+        "model_a_device": model_a.device if model_a is not None else None,
+        "model_a_imgsz": model_a.imgsz if model_a is not None else None,
+        "model_a_max_det": model_a.max_det if model_a is not None else None,
+        "model_b_checkpoint": str(env.model_b_checkpoint) if env.model_b_checkpoint else None,
+        **_model_a_promotion_payload(),
+    }
 
 
 def _task_image_path(task: dict[str, Any]) -> pathlib.Path:
