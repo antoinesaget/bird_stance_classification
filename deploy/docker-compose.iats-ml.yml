@@ -8,7 +8,7 @@ services:
     gpus: all
     environment:
       BIRDS_DATA_ROOT: /data/birds_project
-      MODEL_A_WEIGHTS: /models/model_a/weights.pt
+      MODEL_A_WEIGHTS: /data/birds_project/models/detector/served/model_a/current/weights.pt
       MODEL_A_DEVICE: ${MODEL_A_DEVICE:-0}
       MODEL_A_IMGSZ: ${MODEL_A_IMGSZ:-1280}
       MODEL_A_MAX_DET: ${MODEL_A_MAX_DET:-300}
@@ -21,4 +21,3 @@ services:
       - "${ML_BACKEND_BIND_HOST:-0.0.0.0}:${ML_BACKEND_PORT:-9090}:9090"
     volumes:
       - ${BIRDS_DATA_ROOT}:/data/birds_project:ro
-      - ${MODEL_A_SERVING_WEIGHTS}:/models/model_a/weights.pt:ro

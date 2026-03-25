@@ -42,7 +42,15 @@ if [[ "${IATS_STOP_LEGACY_UI:-0}" == "1" ]]; then
   docker rm -f birds-label-studio birds-postgres >/dev/null 2>&1 || true
 fi
 
-HEALTH_JSON="$(curl -fsS "http://127.0.0.1:${ML_BACKEND_PORT:-9090}/health")"
+HEALTH_JSON=""
+for _ in $(seq 1 30); do
+  if HEALTH_JSON="$(curl -fsS "http://127.0.0.1:${ML_BACKEND_PORT:-9090}/health")"; then
+    break
+  fi
+  sleep 2
+done
+
+[[ -n "$HEALTH_JSON" ]] || die "ML backend health endpoint did not become ready on port ${ML_BACKEND_PORT:-9090}"
 printf '%s\n' "$HEALTH_JSON"
 printf '%s\n' "$HEALTH_JSON" | REQUIRE_NON_CPU_DEVICE="${REQUIRE_NON_CPU_DEVICE:-1}" python3 -c '
 import json
