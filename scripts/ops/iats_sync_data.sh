@@ -3,7 +3,7 @@ set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
-require_cmd rsync ssh
+require_cmd ssh tar
 
 TRUENAS_HOST="${TRUENAS_HOST:-truenas}"
 IATS_HOST="${IATS_HOST:-iats}"
@@ -20,7 +20,8 @@ ssh -o BatchMode=yes -o ConnectTimeout=15 "$IATS_HOST" "mkdir -p '$IATS_BIRDS_DA
 
 for rel_path in "${SYNC_PATHS[@]}"; do
   log "Syncing ${rel_path} from ${TRUENAS_HOST} to ${IATS_HOST}"
-  rsync -az --delete \
-    "${TRUENAS_HOST}:${TRUENAS_BIRDS_DATA_ROOT}/${rel_path}/" \
-    "${IATS_HOST}:${IATS_BIRDS_DATA_ROOT}/${rel_path}/"
+  ssh -o BatchMode=yes -o ConnectTimeout=15 "$TRUENAS_HOST" \
+    "tar -C '$TRUENAS_BIRDS_DATA_ROOT/$rel_path' -cpf - ." \
+    | ssh -o BatchMode=yes -o ConnectTimeout=15 "$IATS_HOST" \
+      "find '$IATS_BIRDS_DATA_ROOT/$rel_path' -mindepth 1 -maxdepth 1 -exec rm -rf {} + && tar -C '$IATS_BIRDS_DATA_ROOT/$rel_path' -xpf -"
 done
