@@ -24,7 +24,8 @@ TRUENAS_REMOTE_REPO_URL ?= $(PUBLIC_REPO_URL)
 	local-config local-up local-down local-ps local-run-ml-host local-stop-ml-container \
 	compose-config compose-up compose-down compose-ps run-ml-backend run-ml-backend-host stop-ml-backend-container \
 	iats-pull iats-sync-data iats-import-exports iats-train iats-promote-model iats-deploy-ml \
-	truenas-pull truenas-export-annotations truenas-deploy-ui \
+	iats-normalize-annotations iats-build-attributes-dataset iats-train-attributes-cv iats-train-attributes-final iats-deploy-model-b \
+	truenas-pull truenas-export-annotations truenas-deploy-ui truenas-create-project \
 	smoke-remote labelstudio-bootstrap-users
 
 bootstrap:
@@ -84,6 +85,16 @@ iats-import-exports:
 	EXPORT_TITLE="$(EXPORT_TITLE)" DOWNLOAD_ALL_TASKS="$(DOWNLOAD_ALL_TASKS)" NORMALIZE_ON_IATS="$(NORMALIZE_ON_IATS)" \
 	"$(REPO_ROOT)/scripts/ops/iats_import_exports.sh"
 
+iats-normalize-annotations:
+	DEPLOY_BRANCH="$(DEPLOY_BRANCH)" REMOTE_REPO_URL="$(IATS_REMOTE_REPO_URL)" REMOTE_PUSH_URL="$(IATS_REMOTE_PUSH_URL)" \
+	ANNOTATION_VERSION="$(ANNOTATION_VERSION)" EXPORT_NAME="$(EXPORT_NAME)" EXPORT_JSON="$(EXPORT_JSON)" \
+	"$(REPO_ROOT)/scripts/ops/remote_repo_exec.sh" "$(IATS_HOST)" "$(IATS_REPO_ROOT)" scripts/ops/iats_normalize_annotations_remote.sh
+
+iats-build-attributes-dataset:
+	DEPLOY_BRANCH="$(DEPLOY_BRANCH)" REMOTE_REPO_URL="$(IATS_REMOTE_REPO_URL)" REMOTE_PUSH_URL="$(IATS_REMOTE_PUSH_URL)" \
+	ANNOTATION_VERSION="$(ANNOTATION_VERSION)" DATASET_VERSION="$(DATASET_VERSION)" TRAIN_PCT="$(TRAIN_PCT)" VAL_PCT="$(VAL_PCT)" TEST_PCT="$(TEST_PCT)" \
+	"$(REPO_ROOT)/scripts/ops/remote_repo_exec.sh" "$(IATS_HOST)" "$(IATS_REPO_ROOT)" scripts/ops/iats_build_attributes_dataset_remote.sh
+
 iats-train:
 	DEPLOY_BRANCH="$(DEPLOY_BRANCH)" REMOTE_REPO_URL="$(IATS_REMOTE_REPO_URL)" REMOTE_PUSH_URL="$(IATS_REMOTE_PUSH_URL)" \
 	TRAIN_PIPELINE="$(TRAIN_PIPELINE)" DATASET_DIR="$(DATASET_DIR)" DATASET_VERSION="$(DATASET_VERSION)" \
@@ -100,6 +111,22 @@ iats-deploy-ml:
 	IATS_STOP_LEGACY_UI="$(IATS_STOP_LEGACY_UI)" REQUIRE_NON_CPU_DEVICE="$(REQUIRE_NON_CPU_DEVICE)" \
 	"$(REPO_ROOT)/scripts/ops/remote_repo_exec.sh" "$(IATS_HOST)" "$(IATS_REPO_ROOT)" scripts/ops/iats_deploy_ml_remote.sh
 
+iats-train-attributes-cv:
+	DEPLOY_BRANCH="$(DEPLOY_BRANCH)" REMOTE_REPO_URL="$(IATS_REMOTE_REPO_URL)" REMOTE_PUSH_URL="$(IATS_REMOTE_PUSH_URL)" \
+	DATASET_DIR="$(DATASET_DIR)" DATASET_VERSION="$(DATASET_VERSION)" TRAIN_SMOKE="$(TRAIN_SMOKE)" TRAIN_ARGS="$(TRAIN_ARGS)" \
+	"$(REPO_ROOT)/scripts/ops/remote_repo_exec.sh" "$(IATS_HOST)" "$(IATS_REPO_ROOT)" scripts/ops/iats_train_attributes_cv_remote.sh
+
+iats-train-attributes-final:
+	DEPLOY_BRANCH="$(DEPLOY_BRANCH)" REMOTE_REPO_URL="$(IATS_REMOTE_REPO_URL)" REMOTE_PUSH_URL="$(IATS_REMOTE_PUSH_URL)" \
+	DATASET_DIR="$(DATASET_DIR)" DATASET_VERSION="$(DATASET_VERSION)" TRAIN_SMOKE="$(TRAIN_SMOKE)" TRAIN_ARGS="$(TRAIN_ARGS)" \
+	"$(REPO_ROOT)/scripts/ops/remote_repo_exec.sh" "$(IATS_HOST)" "$(IATS_REPO_ROOT)" scripts/ops/iats_train_attributes_final_remote.sh
+
+iats-deploy-model-b:
+	DEPLOY_BRANCH="$(DEPLOY_BRANCH)" REMOTE_REPO_URL="$(IATS_REMOTE_REPO_URL)" REMOTE_PUSH_URL="$(IATS_REMOTE_PUSH_URL)" \
+	MODEL_B_SOURCE="$(MODEL_B_SOURCE)" PROMOTION_LABEL="$(PROMOTION_LABEL)" PROMOTION_NOTES="$(PROMOTION_NOTES)" \
+	IATS_STOP_LEGACY_UI="$(IATS_STOP_LEGACY_UI)" REQUIRE_NON_CPU_DEVICE="$(REQUIRE_NON_CPU_DEVICE)" \
+	"$(REPO_ROOT)/scripts/ops/remote_repo_exec.sh" "$(IATS_HOST)" "$(IATS_REPO_ROOT)" scripts/ops/iats_deploy_model_b_remote.sh
+
 truenas-pull:
 	DEPLOY_BRANCH="$(DEPLOY_BRANCH)" REMOTE_REPO_URL="$(TRUENAS_REMOTE_REPO_URL)" \
 	"$(REPO_ROOT)/scripts/ops/remote_repo_exec.sh" "$(TRUENAS_HOST)" "$(TRUENAS_REPO_ROOT)" scripts/ops/git_pull_ff_only.sh
@@ -113,6 +140,12 @@ truenas-export-annotations:
 truenas-deploy-ui:
 	DEPLOY_BRANCH="$(DEPLOY_BRANCH)" REMOTE_REPO_URL="$(TRUENAS_REMOTE_REPO_URL)" \
 	"$(REPO_ROOT)/scripts/ops/remote_repo_exec.sh" "$(TRUENAS_HOST)" "$(TRUENAS_REPO_ROOT)" scripts/ops/truenas_deploy_ui_remote.sh
+
+truenas-create-project:
+	DEPLOY_BRANCH="$(DEPLOY_BRANCH)" REMOTE_REPO_URL="$(TRUENAS_REMOTE_REPO_URL)" \
+	SOURCE_PROJECT_ID="$(SOURCE_PROJECT_ID)" TARGET_PROJECT_TITLE="$(TARGET_PROJECT_TITLE)" \
+	LABEL_STUDIO_ML_BACKEND_URL="$(LABEL_STUDIO_ML_BACKEND_URL)" LABEL_STUDIO_ML_TITLE="$(LABEL_STUDIO_ML_TITLE)" \
+	"$(REPO_ROOT)/scripts/ops/remote_repo_exec.sh" "$(TRUENAS_HOST)" "$(TRUENAS_REPO_ROOT)" scripts/ops/truenas_create_project_remote.sh
 
 smoke-remote:
 	IATS_HOST="$(IATS_HOST)" TRUENAS_HOST="$(TRUENAS_HOST)" \

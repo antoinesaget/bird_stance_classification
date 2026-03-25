@@ -14,6 +14,8 @@ require_clean_worktree
 
 BIRDS_DATA_ROOT="$(resolve_repo_path "$BIRDS_DATA_ROOT")"
 MODEL_A_SERVING_WEIGHTS="$(resolve_repo_path "$MODEL_A_SERVING_WEIGHTS")"
+MODEL_B_SERVING_CHECKPOINT="${MODEL_B_SERVING_CHECKPOINT:-data/birds_project/models/attributes/served/model_b/current/checkpoint.pt}"
+MODEL_B_SERVING_CHECKPOINT="$(resolve_repo_path "$MODEL_B_SERVING_CHECKPOINT")"
 MODEL_A_BOOTSTRAP_WEIGHTS="${MODEL_A_BOOTSTRAP_WEIGHTS:-}"
 if [[ -n "$MODEL_A_BOOTSTRAP_WEIGHTS" ]]; then
   MODEL_A_BOOTSTRAP_WEIGHTS="$(resolve_repo_path "$MODEL_A_BOOTSTRAP_WEIGHTS")"
@@ -32,7 +34,7 @@ if [[ ! -f "$MODEL_A_SERVING_WEIGHTS" ]]; then
     --notes "Initial promotion created by iats_deploy_ml_remote.sh"
 fi
 
-export BIRDS_DATA_ROOT MODEL_A_SERVING_WEIGHTS MODEL_A_BOOTSTRAP_WEIGHTS
+export BIRDS_DATA_ROOT MODEL_A_SERVING_WEIGHTS MODEL_A_BOOTSTRAP_WEIGHTS MODEL_B_SERVING_CHECKPOINT
 
 docker compose --env-file "$ENV_FILE_PATH" -f "$COMPOSE_FILE_PATH" config >/dev/null
 docker compose --env-file "$ENV_FILE_PATH" -f "$COMPOSE_FILE_PATH" up -d --build
@@ -63,6 +65,10 @@ if not payload.get("model_a_loaded"):
 if os.environ.get("REQUIRE_NON_CPU_DEVICE", "1") not in {"0", "false", "False"}:
     if payload.get("model_a_device") in {None, "cpu"}:
         raise SystemExit(f"Expected non-CPU device, got {payload.get('model_a_device')!r}")
+model_b_checkpoint = os.environ.get("MODEL_B_SERVING_CHECKPOINT")
+if model_b_checkpoint and os.path.exists(model_b_checkpoint):
+    if not payload.get("model_b_loaded"):
+        raise SystemExit("Model B checkpoint exists but backend did not load it")
 '
 
 docker inspect birds-ml-backend --format '{{json .HostConfig.DeviceRequests}}'

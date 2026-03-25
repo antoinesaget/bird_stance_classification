@@ -39,6 +39,7 @@ dist/
 .jupyter/
 .local/
 .cache/
+.analysis/
 
 # Large local datasets and experiment outputs
 /data/

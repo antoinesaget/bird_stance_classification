@@ -13,6 +13,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Promote a model artifact into the served model slot.")
     parser.add_argument("--source", required=True, help="Path to the candidate model artifact")
     parser.add_argument("--served-dir", required=True, help="Directory containing current/ and releases/")
+    parser.add_argument("--artifact-name", default="weights.pt", help="Filename to write under current/ and releases/")
     parser.add_argument("--label", default="manual", help="Promotion label written to metadata")
     parser.add_argument("--notes", default="", help="Optional promotion notes")
     return parser.parse_args()
@@ -43,8 +44,8 @@ def main() -> int:
     release_dir.mkdir(parents=True, exist_ok=False)
     current_dir.mkdir(parents=True, exist_ok=True)
 
-    release_weights = release_dir / "weights.pt"
-    current_weights = current_dir / "weights.pt"
+    release_weights = release_dir / args.artifact_name
+    current_weights = current_dir / args.artifact_name
     shutil.copy2(source, release_weights)
     shutil.copy2(source, current_weights)
 

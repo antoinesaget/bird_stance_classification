@@ -140,7 +140,7 @@ def main() -> int:
     meta_path = layout.metadata / "images.parquet"
     crop_root = layout.derived_crops / args.annotation_version
 
-    for p in (birds_path, images_path, meta_path):
+    for p in (birds_path, images_path):
         if not p.exists():
             raise FileNotFoundError(p)
 
@@ -151,6 +151,12 @@ def main() -> int:
         out_dir = next_version_dir(layout.derived_datasets, "ds")
 
     conn = duckdb.connect(database=":memory:")
+    meta_cte = (
+        f"read_parquet('{meta_path.as_posix()}')"
+        if meta_path.exists()
+        else "(\n            SELECT DISTINCT image_id, CAST(NULL AS VARCHAR) AS filepath, CAST(NULL AS VARCHAR) AS site_id\n"
+        f"            FROM read_parquet('{birds_path.as_posix()}')\n        )"
+    )
     query = f"""
         SELECT
             b.annotation_version,
@@ -165,16 +171,17 @@ def main() -> int:
             b.specie,
             b.behavior,
             b.substrate,
-            b.legs,
+            b.stance,
             i.image_usable,
-            m.filepath,
-            m.site_id,
-            abs(hash(coalesce(m.site_id, '') || ':' || b.image_id)) % 100 AS split_bucket,
+            coalesce(m.filepath, i.filepath) AS filepath,
+            coalesce(m.site_id, i.site_id) AS site_id,
+            coalesce(coalesce(m.site_id, i.site_id), '') || ':' || b.image_id AS group_id,
+            abs(hash(coalesce(coalesce(m.site_id, i.site_id), '') || ':' || b.image_id)) % 100 AS split_bucket,
             '{crop_root.as_posix()}/' || replace(b.bird_id, ':', '_') || '.jpg' AS crop_path
         FROM read_parquet('{birds_path.as_posix()}') b
         LEFT JOIN read_parquet('{images_path.as_posix()}') i
           ON b.annotation_version = i.annotation_version AND b.image_id = i.image_id
-        LEFT JOIN read_parquet('{meta_path.as_posix()}') m
+        LEFT JOIN {meta_cte} m
           ON b.image_id = m.image_id
         ORDER BY b.image_id, b.bird_id
     """
@@ -204,13 +211,24 @@ def main() -> int:
         raise RuntimeError("val/test image leakage detected")
 
     label_counts = {}
-    for column in ["isbird", "readability", "specie", "behavior", "substrate", "legs", "image_usable"]:
+    for column in ["isbird", "readability", "specie", "behavior", "substrate", "stance", "image_usable"]:
         vc = df[column].fillna("<null>").value_counts().sort_index().to_dict()
         label_counts[column] = {str(k): int(v) for k, v in vc.items()}
 
     null_counts = {
         column: int(df[column].isna().sum())
-        for column in ["isbird", "readability", "specie", "behavior", "substrate", "legs", "image_usable", "filepath", "crop_path"]
+        for column in [
+            "isbird",
+            "readability",
+            "specie",
+            "behavior",
+            "substrate",
+            "stance",
+            "image_usable",
+            "filepath",
+            "crop_path",
+            "group_id",
+        ]
     }
 
     manifest = {
@@ -221,7 +239,7 @@ def main() -> int:
         "inputs": {
             "birds_parquet": str(birds_path),
             "images_labels_parquet": str(images_path),
-            "metadata_parquet": str(meta_path),
+            "metadata_parquet": str(meta_path) if meta_path.exists() else None,
         },
         "filters": {
             "include_all_birds": True,

@@ -70,13 +70,13 @@ def to_label_studio_prediction(
             append_choice("behavior", attr.behavior_conf, attr.behavior)
             append_choice("substrate", attr.substrate_conf, attr.substrate)
 
-            # Stance (legs) visible only for resting/backresting on ground/water/unsure.
+            # Stance visible only for resting/backresting on bare_ground/water/unsure.
             can_show_stance = (
                 attr.behavior in {"resting", "backresting"}
-                and attr.substrate in {"ground", "water", "unsure"}
+                and attr.substrate in {"bare_ground", "water", "unsure"}
             )
             if can_show_stance:
-                append_choice("legs", attr.legs_conf, attr.legs)
+                append_choice("stance", attr.stance_conf, attr.stance)
 
     return {
         "task": task_id,

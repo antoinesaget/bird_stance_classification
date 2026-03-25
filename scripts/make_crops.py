@@ -79,14 +79,18 @@ def main() -> int:
 
     birds_path = layout.labelstudio_normalized / args.annotation_version / "birds.parquet"
     metadata_path = layout.metadata / "images.parquet"
+    images_path = layout.labelstudio_normalized / args.annotation_version / "images_labels.parquet"
 
     if not birds_path.exists():
         raise FileNotFoundError(birds_path)
-    if not metadata_path.exists():
+    if not metadata_path.exists() and not images_path.exists():
         raise FileNotFoundError(metadata_path)
 
     birds_df = pd.read_parquet(birds_path)
-    meta_df = pd.read_parquet(metadata_path)[["image_id", "filepath"]]
+    if metadata_path.exists():
+        meta_df = pd.read_parquet(metadata_path)[["image_id", "filepath"]]
+    else:
+        meta_df = pd.read_parquet(images_path)[["image_id", "filepath"]]
     merged = birds_df.merge(meta_df, on="image_id", how="left", validate="many_to_one")
 
     missing = merged["filepath"].isna().sum()

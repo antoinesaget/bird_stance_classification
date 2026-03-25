@@ -120,6 +120,8 @@ def _model_health_payload() -> dict[str, Any]:
         "model_a_imgsz": model_a.imgsz if model_a is not None else None,
         "model_a_max_det": model_a.max_det if model_a is not None else None,
         "model_b_checkpoint": str(env.model_b_checkpoint) if env.model_b_checkpoint else None,
+        "model_b_schema_version": model_b.schema_version,
+        "model_b_supported_labels": {head: sorted(labels) for head, labels in model_b.supported_labels.items()},
         **_model_a_promotion_payload(),
     }
 
@@ -219,14 +221,14 @@ def predict(payload: dict[str, Any]) -> dict[str, Any]:
             )
             for idx, attr in enumerate(attrs):
                 logger.debug(
-                    "predict task=%s det_idx=%d readability=%s specie=%s behavior=%s substrate=%s legs=%s",
+                    "predict task=%s det_idx=%d readability=%s specie=%s behavior=%s substrate=%s stance=%s",
                     task_id,
                     idx,
                     attr.readability,
                     attr.specie,
                     attr.behavior,
                     attr.substrate,
-                    attr.legs,
+                    attr.stance,
                 )
 
             pred = to_label_studio_prediction(

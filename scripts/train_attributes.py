@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
+import math
 import os
 import pathlib
-from dataclasses import dataclass
-import datetime as dt
 import time
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -16,7 +17,7 @@ import torch
 import torch.nn as nn
 import yaml
 from PIL import Image
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 from torchvision import transforms
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -28,24 +29,35 @@ from birdsys.paths import ensure_layout, next_version_dir
 from birdsys.reporting import diff_numeric_dict, find_previous_version_dir
 from birdsys.training.attributes import (
     BEHAVIOR_TO_ID,
-    LEGS_TO_ID,
     READABILITY_TO_ID,
     SPECIE_TO_ID,
+    STANCE_TO_ID,
     SUBSTRATE_TO_ID,
     compute_head_masks,
     encode_labels,
+    normalize_behavior,
+    normalize_choice,
+    normalize_stance,
+    normalize_substrate,
 )
-from birdsys.training.metrics import confusion_matrix, macro_f1
+from birdsys.training.metrics import class_supports, confusion_matrix, macro_f1
 from birdsys.training.models import MultiHeadAttributeModel
 
 
-HEAD_CLASS_COUNTS = {
-    "readability": 3,
-    "specie": 3,
-    "behavior": 7,
-    "substrate": 4,
-    "legs": 4,
+HEADS = ["readability", "specie", "behavior", "substrate", "stance"]
+CONFUSION_HEADS = ["behavior", "substrate", "stance"]
+LABEL_MAPS = {
+    "readability": READABILITY_TO_ID,
+    "specie": SPECIE_TO_ID,
+    "behavior": BEHAVIOR_TO_ID,
+    "substrate": SUBSTRATE_TO_ID,
+    "stance": STANCE_TO_ID,
 }
+ID_TO_LABELS = {
+    head: [label for label, _ in sorted(mapping.items(), key=lambda item: item[1])]
+    for head, mapping in LABEL_MAPS.items()
+}
+HEAD_CLASS_COUNTS = {head: len(labels) for head, labels in ID_TO_LABELS.items()}
 
 
 @dataclass(frozen=True)
@@ -60,6 +72,17 @@ class TrainCfg:
     finetune_lr: float
     weight_decay: float
     device: str
+
+
+@dataclass(frozen=True)
+class TrainResult:
+    model: MultiHeadAttributeModel
+    history: list[dict[str, float]]
+    final_metrics: dict[str, float]
+    confusion_matrices: dict[str, np.ndarray]
+    train_visible_label_counts: dict[str, dict[str, int]]
+    eval_visible_label_counts: dict[str, dict[str, int]]
+    supported_labels: dict[str, list[str]]
 
 
 class BirdAttributeDataset(Dataset):
@@ -94,7 +117,7 @@ class BirdAttributeDataset(Dataset):
             specie=_text("specie"),
             behavior=_text("behavior"),
             substrate=_text("substrate"),
-            legs=_text("legs"),
+            stance=_text("stance"),
         )
         masks = compute_head_masks(
             isbird=_text("isbird"),
@@ -110,23 +133,27 @@ class BirdAttributeDataset(Dataset):
             "specie_label": torch.tensor(labels["specie"] if labels["specie"] is not None else -1),
             "behavior_label": torch.tensor(labels["behavior"] if labels["behavior"] is not None else -1),
             "substrate_label": torch.tensor(labels["substrate"] if labels["substrate"] is not None else -1),
-            "legs_label": torch.tensor(labels["legs"] if labels["legs"] is not None else -1),
+            "stance_label": torch.tensor(labels["stance"] if labels["stance"] is not None else -1),
             "readability_mask": torch.tensor(masks.readability),
             "specie_mask": torch.tensor(masks.specie),
             "behavior_mask": torch.tensor(masks.behavior),
             "substrate_mask": torch.tensor(masks.substrate),
-            "legs_mask": torch.tensor(masks.legs),
+            "stance_mask": torch.tensor(masks.stance),
         }
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train Model B multi-head bird attribute classifier")
-    parser.add_argument("--dataset-dir", required=True, help="Path to ds_vXXX with train/val/test parquet")
+    parser.add_argument("--dataset-dir", required=True, help="Path to ds_vXXX with split parquet files")
     parser.add_argument("--config", default="config/train_attributes.yaml")
     parser.add_argument("--data-root", default=os.getenv("BIRDS_DATA_ROOT", "/data/birds_project"))
     parser.add_argument("--output-dir", default="", help="Optional explicit output dir")
+    parser.add_argument("--train-split", default="train", choices=["train", "val", "test"])
+    parser.add_argument("--eval-split", default="val", choices=["train", "val", "test"])
+    parser.add_argument("--schema-version", default="annotation_schema_v2")
     parser.add_argument("--smoke", action="store_true", help="Use tiny subset and 1 epoch")
     parser.add_argument("--no-pretrained", action="store_true", help="Disable pretrained backbone weights")
+    parser.add_argument("--no-weighted-sampling", action="store_true", help="Disable WeightedRandomSampler")
     parser.add_argument(
         "--progress-every-batches",
         type=int,
@@ -164,22 +191,151 @@ def pick_device(requested: str) -> torch.device:
 
 
 def sanitize_df(df: pd.DataFrame) -> pd.DataFrame:
-    required = [
-        "crop_path",
-        "isbird",
-        "readability",
-        "specie",
-        "behavior",
-        "substrate",
-        "legs",
-    ]
+    required = ["crop_path", "group_id", "image_id", "isbird", "readability", "specie", "behavior", "substrate", "stance"]
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(f"Dataset missing columns: {missing}")
     out = df.copy()
     out["crop_path"] = out["crop_path"].astype(str)
     out = out[out["crop_path"].map(lambda p: pathlib.Path(p).exists())].reset_index(drop=True)
+    out["isbird"] = out["isbird"].map(lambda value: normalize_choice(None if pd.isna(value) else str(value)))
+    out = out[out["isbird"] == "yes"].reset_index(drop=True)
+    for column, normalizer in (
+        ("behavior", normalize_behavior),
+        ("substrate", normalize_substrate),
+        ("stance", normalize_stance),
+    ):
+        out[column] = out[column].map(lambda value: normalizer(None if pd.isna(value) else str(value)))
+    for column in ("readability", "specie"):
+        out[column] = out[column].map(lambda value: normalize_choice(None if pd.isna(value) else str(value)))
     return out
+
+
+def dataframe_from_split(path: pathlib.Path, smoke: bool) -> pd.DataFrame:
+    frame = sanitize_df(pd.read_parquet(path))
+    if smoke:
+        return frame.head(min(len(frame), 128)).reset_index(drop=True)
+    return frame
+
+
+def summarize_labels(frame: pd.DataFrame) -> dict[str, dict[str, int]]:
+    out: dict[str, dict[str, int]] = {}
+    for column in ["isbird", "readability", "specie", "behavior", "substrate", "stance"]:
+        vc = frame[column].fillna("<null>").value_counts().sort_index().to_dict()
+        out[column] = {str(k): int(v) for k, v in vc.items()}
+    return out
+
+
+def collect_visible_label_counts(frame: pd.DataFrame) -> dict[str, dict[str, int]]:
+    counts = {head: {label: 0 for label in ID_TO_LABELS[head]} for head in HEADS}
+    for _, row in frame.iterrows():
+        masks = compute_head_masks(
+            isbird=str(row["isbird"]),
+            readability=str(row["readability"]),
+            specie=str(row["specie"]),
+            behavior=str(row["behavior"]) if pd.notna(row["behavior"]) else None,
+            substrate=str(row["substrate"]) if pd.notna(row["substrate"]) else None,
+        )
+        normalized = {
+            "readability": normalize_choice(str(row["readability"])) if pd.notna(row["readability"]) else None,
+            "specie": normalize_choice(str(row["specie"])) if pd.notna(row["specie"]) else None,
+            "behavior": normalize_behavior(str(row["behavior"])) if pd.notna(row["behavior"]) else None,
+            "substrate": normalize_substrate(str(row["substrate"])) if pd.notna(row["substrate"]) else None,
+            "stance": normalize_stance(str(row["stance"])) if pd.notna(row["stance"]) else None,
+        }
+        mask_map = {
+            "readability": masks.readability,
+            "specie": masks.specie,
+            "behavior": masks.behavior,
+            "substrate": masks.substrate,
+            "stance": masks.stance,
+        }
+        for head in HEADS:
+            label = normalized[head]
+            if mask_map[head] and label in counts[head]:
+                counts[head][label] += 1
+    return counts
+
+
+def supported_labels_from_counts(counts: dict[str, dict[str, int]]) -> dict[str, list[str]]:
+    return {
+        head: sorted([label for label, count in label_counts.items() if int(count) > 0], key=lambda label: LABEL_MAPS[head][label])
+        for head, label_counts in counts.items()
+    }
+
+
+def compute_sampling_weights(frame: pd.DataFrame) -> tuple[np.ndarray, dict[str, dict[str, int]]]:
+    counts = collect_visible_label_counts(frame)
+    totals = {head: sum(head_counts.values()) for head, head_counts in counts.items()}
+
+    raw_weights = []
+    for _, row in frame.iterrows():
+        masks = compute_head_masks(
+            isbird=str(row["isbird"]),
+            readability=str(row["readability"]),
+            specie=str(row["specie"]),
+            behavior=str(row["behavior"]) if pd.notna(row["behavior"]) else None,
+            substrate=str(row["substrate"]) if pd.notna(row["substrate"]) else None,
+        )
+        candidates: list[float] = []
+        items = {
+            "readability": normalize_choice(str(row["readability"])) if pd.notna(row["readability"]) else None,
+            "specie": normalize_choice(str(row["specie"])) if pd.notna(row["specie"]) else None,
+            "behavior": normalize_behavior(str(row["behavior"])) if pd.notna(row["behavior"]) else None,
+            "substrate": normalize_substrate(str(row["substrate"])) if pd.notna(row["substrate"]) else None,
+            "stance": normalize_stance(str(row["stance"])) if pd.notna(row["stance"]) else None,
+        }
+        mask_map = {
+            "readability": masks.readability,
+            "specie": masks.specie,
+            "behavior": masks.behavior,
+            "substrate": masks.substrate,
+            "stance": masks.stance,
+        }
+        for head in HEADS:
+            label = items[head]
+            count = counts[head].get(label or "", 0)
+            if mask_map[head] and label and count > 0 and totals[head] > 0:
+                candidates.append(math.sqrt(float(totals[head]) / float(count)))
+        raw_weights.append(max(candidates) if candidates else 1.0)
+
+    weights = np.asarray(raw_weights, dtype=np.float64)
+    mean_weight = float(weights.mean()) if len(weights) else 1.0
+    if mean_weight > 0:
+        weights = weights / mean_weight
+    weights = np.minimum(weights, 4.0)
+    return weights, counts
+
+
+def make_train_loader(
+    dataset: BirdAttributeDataset,
+    *,
+    batch_size: int,
+    num_workers: int,
+    pin_memory: bool,
+    weights: np.ndarray | None,
+) -> DataLoader:
+    if weights is not None:
+        sampler = WeightedRandomSampler(
+            weights=torch.as_tensor(weights, dtype=torch.double),
+            num_samples=len(weights),
+            replacement=True,
+        )
+        return DataLoader(
+            dataset,
+            batch_size=batch_size,
+            sampler=sampler,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+        )
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+    )
 
 
 def compute_masked_loss(
@@ -188,7 +344,7 @@ def compute_masked_loss(
     criterion: nn.Module,
 ) -> torch.Tensor:
     total = torch.tensor(0.0, device=next(iter(logits.values())).device)
-    for head in ["readability", "specie", "behavior", "substrate", "legs"]:
+    for head in HEADS:
         labels = batch[f"{head}_label"]
         mask = batch[f"{head}_mask"].bool()
         if mask.any():
@@ -261,12 +417,9 @@ def evaluate(
     model: MultiHeadAttributeModel,
     loader: DataLoader,
     device: torch.device,
-) -> tuple[dict[str, float], np.ndarray]:
+) -> tuple[dict[str, float], dict[str, np.ndarray], dict[str, dict[str, int]]]:
     model.eval()
-    storage: dict[str, dict[str, list[int]]] = {
-        head: {"true": [], "pred": []}
-        for head in ["readability", "specie", "behavior", "substrate", "legs"]
-    }
+    storage: dict[str, dict[str, list[int]]] = {head: {"true": [], "pred": []} for head in HEADS}
 
     with torch.no_grad():
         for batch in loader:
@@ -281,66 +434,201 @@ def evaluate(
                 storage[head]["pred"].extend(preds[mask].tolist())
 
     metrics: dict[str, float] = {}
-    legs_cm = np.zeros((4, 4), dtype=np.int64)
+    confusion_matrices = {head: np.zeros((HEAD_CLASS_COUNTS[head], HEAD_CLASS_COUNTS[head]), dtype=np.int64) for head in CONFUSION_HEADS}
+    support_counts: dict[str, dict[str, int]] = {}
     for head, num_classes in HEAD_CLASS_COUNTS.items():
         y_true = np.array(storage[head]["true"], dtype=np.int64)
         y_pred = np.array(storage[head]["pred"], dtype=np.int64)
         if len(y_true) == 0:
             metrics[f"{head}_accuracy"] = 0.0
             metrics[f"{head}_f1"] = 0.0
+            support_counts[head] = {label: 0 for label in ID_TO_LABELS[head]}
             continue
+
         acc = float((y_true == y_pred).mean())
-        f1 = macro_f1(y_true, y_pred, num_classes)
+        f1 = macro_f1(y_true, y_pred, num_classes, ignore_absent_classes=True)
         metrics[f"{head}_accuracy"] = acc
         metrics[f"{head}_f1"] = f1
+        support_counts[head] = {
+            label: int(count)
+            for label, count in zip(ID_TO_LABELS[head], class_supports(y_true, num_classes).tolist())
+        }
+        if head in confusion_matrices:
+            confusion_matrices[head] = confusion_matrix(y_true, y_pred, num_classes)
 
-        if head == "legs":
-            legs_cm = confusion_matrix(y_true, y_pred, num_classes)
-
-    return metrics, legs_cm
-
-
-def dataframe_from_split(path: pathlib.Path, smoke: bool) -> pd.DataFrame:
-    frame = sanitize_df(pd.read_parquet(path))
-    if smoke:
-        return frame.head(min(len(frame), 128)).reset_index(drop=True)
-    return frame
+    return metrics, confusion_matrices, support_counts
 
 
-def summarize_labels(frame: pd.DataFrame) -> dict[str, dict[str, int]]:
-    out: dict[str, dict[str, int]] = {}
-    for column in ["isbird", "readability", "specie", "behavior", "substrate", "legs"]:
-        vc = frame[column].fillna("<null>").value_counts().sort_index().to_dict()
-        out[column] = {str(k): int(v) for k, v in vc.items()}
-    return out
+def train_model(
+    *,
+    train_df: pd.DataFrame,
+    eval_df: pd.DataFrame,
+    cfg: TrainCfg,
+    smoke: bool,
+    pretrained: bool,
+    device: torch.device,
+    progress_every_batches: int,
+    weighted_sampling: bool,
+) -> TrainResult:
+    train_ds = BirdAttributeDataset(train_df, image_size=cfg.image_size)
+    eval_ds = BirdAttributeDataset(eval_df, image_size=cfg.image_size)
+
+    weights = None
+    train_visible_label_counts = collect_visible_label_counts(train_df)
+    if weighted_sampling:
+        weights, train_visible_label_counts = compute_sampling_weights(train_df)
+
+    eval_visible_label_counts = collect_visible_label_counts(eval_df)
+    train_loader = make_train_loader(
+        train_ds,
+        batch_size=cfg.batch_size,
+        num_workers=cfg.num_workers,
+        pin_memory=(device.type != "cpu"),
+        weights=weights,
+    )
+    eval_loader = DataLoader(
+        eval_ds,
+        batch_size=cfg.batch_size,
+        shuffle=False,
+        num_workers=cfg.num_workers,
+        pin_memory=(device.type != "cpu"),
+    )
+
+    model = MultiHeadAttributeModel(
+        backbone_name=cfg.backbone,
+        pretrained=pretrained,
+    ).to(device)
+
+    history: list[dict[str, float]] = []
+
+    model.freeze_backbone()
+    opt1 = torch.optim.AdamW(
+        [p for p in model.parameters() if p.requires_grad],
+        lr=cfg.head_lr,
+        weight_decay=cfg.weight_decay,
+    )
+    for epoch in range(cfg.head_epochs):
+        epoch_number = epoch + 1
+        epoch_started = time.monotonic()
+        train_loss = run_epoch(
+            model=model,
+            loader=train_loader,
+            device=device,
+            optimizer=opt1,
+            phase_name="head",
+            epoch_idx=epoch_number,
+            total_epochs=cfg.head_epochs,
+            progress_every_batches=progress_every_batches,
+        )
+        val_metrics, _, _ = evaluate(model=model, loader=eval_loader, device=device)
+        history.append(
+            {
+                "phase": 1,
+                "epoch": epoch_number,
+                "train_loss": train_loss,
+                **val_metrics,
+            }
+        )
+        print(
+            "epoch_done "
+            f"phase=head "
+            f"epoch={epoch_number}/{cfg.head_epochs} "
+            f"train_loss={train_loss:.5f} "
+            f"behavior_f1={val_metrics.get('behavior_f1', 0.0):.5f} "
+            f"stance_f1={val_metrics.get('stance_f1', 0.0):.5f} "
+            f"duration_s={time.monotonic() - epoch_started:.2f}",
+            flush=True,
+        )
+
+    model.unfreeze_backbone()
+    opt2 = torch.optim.AdamW(model.parameters(), lr=cfg.finetune_lr, weight_decay=cfg.weight_decay)
+    confusion_matrices = {head: np.zeros((HEAD_CLASS_COUNTS[head], HEAD_CLASS_COUNTS[head]), dtype=np.int64) for head in CONFUSION_HEADS}
+    for epoch in range(cfg.finetune_epochs):
+        epoch_number = epoch + 1
+        epoch_started = time.monotonic()
+        train_loss = run_epoch(
+            model=model,
+            loader=train_loader,
+            device=device,
+            optimizer=opt2,
+            phase_name="finetune",
+            epoch_idx=epoch_number,
+            total_epochs=cfg.finetune_epochs,
+            progress_every_batches=progress_every_batches,
+        )
+        val_metrics, confusion_matrices, _ = evaluate(model=model, loader=eval_loader, device=device)
+        history.append(
+            {
+                "phase": 2,
+                "epoch": epoch_number,
+                "train_loss": train_loss,
+                **val_metrics,
+            }
+        )
+        print(
+            "epoch_done "
+            f"phase=finetune "
+            f"epoch={epoch_number}/{cfg.finetune_epochs} "
+            f"train_loss={train_loss:.5f} "
+            f"behavior_f1={val_metrics.get('behavior_f1', 0.0):.5f} "
+            f"stance_f1={val_metrics.get('stance_f1', 0.0):.5f} "
+            f"duration_s={time.monotonic() - epoch_started:.2f}",
+            flush=True,
+        )
+
+    final_metrics, confusion_matrices, eval_visible_label_counts = evaluate(model=model, loader=eval_loader, device=device)
+    if history:
+        history[-1].update(final_metrics)
+
+    return TrainResult(
+        model=model,
+        history=history,
+        final_metrics=final_metrics,
+        confusion_matrices=confusion_matrices,
+        train_visible_label_counts=train_visible_label_counts,
+        eval_visible_label_counts=eval_visible_label_counts,
+        supported_labels=supported_labels_from_counts(train_visible_label_counts),
+    )
 
 
 def write_training_report(
     *,
     out_dir: pathlib.Path,
     dataset_dir: pathlib.Path,
+    train_split: str,
+    eval_split: str,
     device: torch.device,
     smoke: bool,
     pretrained: bool,
+    weighted_sampling: bool,
     history: list[dict[str, float]],
     final_metrics: dict[str, float],
     train_rows: int,
-    val_rows: int,
+    eval_rows: int,
     train_label_counts: dict[str, dict[str, int]],
-    val_label_counts: dict[str, dict[str, int]],
+    eval_label_counts: dict[str, dict[str, int]],
+    train_visible_label_counts: dict[str, dict[str, int]],
+    eval_visible_label_counts: dict[str, dict[str, int]],
+    supported_labels: dict[str, list[str]],
     previous_metrics: dict[str, Any] | None,
 ) -> tuple[pathlib.Path, pathlib.Path]:
     report: dict[str, Any] = {
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "model_version": out_dir.name,
         "dataset_version": dataset_dir.name,
+        "train_split": train_split,
+        "eval_split": eval_split,
         "device": str(device),
         "smoke": bool(smoke),
         "pretrained": bool(pretrained),
+        "weighted_sampling": bool(weighted_sampling),
         "train_rows": int(train_rows),
-        "val_rows": int(val_rows),
+        "eval_rows": int(eval_rows),
         "train_label_counts": train_label_counts,
-        "val_label_counts": val_label_counts,
+        "eval_label_counts": eval_label_counts,
+        "train_visible_label_counts": train_visible_label_counts,
+        "eval_visible_label_counts": eval_visible_label_counts,
+        "supported_labels": supported_labels,
         "history": history,
         "final_metrics": final_metrics,
         "comparison_to_previous": None,
@@ -348,11 +636,7 @@ def write_training_report(
 
     if previous_metrics is not None:
         prev_final = previous_metrics.get("final", {})
-        comparable_keys = [
-            key
-            for key in sorted(final_metrics)
-            if key == "train_loss" or key.endswith("_accuracy") or key.endswith("_f1")
-        ]
+        comparable_keys = [key for key in sorted(final_metrics) if key.endswith("_accuracy") or key.endswith("_f1")]
         current_slice = {key: final_metrics[key] for key in comparable_keys}
         previous_slice = {key: prev_final.get(key) for key in comparable_keys}
         report["comparison_to_previous"] = {
@@ -367,20 +651,58 @@ def write_training_report(
         f"# Model B Report: {out_dir.name}",
         "",
         f"- Dataset: `{dataset_dir.name}`",
+        f"- Splits: train `{train_split}`, eval `{eval_split}`",
         f"- Device: `{device}`",
         f"- Smoke run: `{smoke}`",
         f"- Pretrained backbone: `{pretrained}`",
-        f"- Rows: train `{train_rows}`, val `{val_rows}`",
+        f"- Weighted sampling: `{weighted_sampling}`",
+        f"- Rows: train `{train_rows}`, eval `{eval_rows}`",
+        f"- Supported labels: `{supported_labels}`",
         f"- Final metrics: `{final_metrics}`",
     ]
     if report["comparison_to_previous"] is not None:
         cmp = report["comparison_to_previous"]
-        lines.append(
-            f"- Delta vs `{cmp['previous_model_version']}`: `{cmp['delta_final_metrics']}`"
-        )
+        lines.append(f"- Delta vs `{cmp['previous_model_version']}`: `{cmp['delta_final_metrics']}`")
     report_md = out_dir / "report.md"
     report_md.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return report_json, report_md
+
+
+def save_checkpoint(
+    *,
+    out_dir: pathlib.Path,
+    model: MultiHeadAttributeModel,
+    cfg: TrainCfg,
+    pretrained: bool,
+    schema_version: str,
+    supported_labels: dict[str, list[str]],
+    train_visible_label_counts: dict[str, dict[str, int]],
+) -> pathlib.Path:
+    checkpoint_path = out_dir / "checkpoint.pt"
+    torch.save(
+        {
+            "model_state": model.state_dict(),
+            "backbone": cfg.backbone,
+            "image_size": cfg.image_size,
+            "pretrained": pretrained,
+            "schema_version": schema_version,
+            "label_maps": LABEL_MAPS,
+            "supported_labels": supported_labels,
+            "train_label_counts": train_visible_label_counts,
+        },
+        checkpoint_path,
+    )
+    return checkpoint_path
+
+
+def write_confusion_matrices(out_dir: pathlib.Path, confusion_matrices: dict[str, np.ndarray]) -> dict[str, pathlib.Path]:
+    output: dict[str, pathlib.Path] = {}
+    for head, matrix in confusion_matrices.items():
+        out_path = out_dir / f"{head}_confusion_matrix.csv"
+        labels = ID_TO_LABELS[head]
+        pd.DataFrame(matrix, index=labels, columns=labels).to_csv(out_path)
+        output[head] = out_path
+    return output
 
 
 def main() -> int:
@@ -388,14 +710,13 @@ def main() -> int:
     cfg = load_cfg(pathlib.Path(args.config).resolve())
 
     dataset_dir = pathlib.Path(args.dataset_dir).expanduser().resolve()
-    train_path = dataset_dir / "train.parquet"
-    val_path = dataset_dir / "val.parquet"
-
+    train_path = dataset_dir / f"{args.train_split}.parquet"
+    eval_path = dataset_dir / f"{args.eval_split}.parquet"
     train_df = dataframe_from_split(train_path, args.smoke)
-    val_df = dataframe_from_split(val_path, args.smoke)
+    eval_df = dataframe_from_split(eval_path, args.smoke)
 
-    if train_df.empty or val_df.empty:
-        raise RuntimeError("train/val splits are empty after filtering missing crop files")
+    if train_df.empty or eval_df.empty:
+        raise RuntimeError("train/eval splits are empty after filtering missing crop files and non-bird rows")
 
     data_root = pathlib.Path(args.data_root).expanduser().resolve()
     layout = ensure_layout(data_root)
@@ -425,134 +746,36 @@ def main() -> int:
     print(
         "train_setup "
         f"dataset={dataset_dir.name} "
+        f"train_split={args.train_split} "
+        f"eval_split={args.eval_split} "
         f"train_rows={len(train_df)} "
-        f"val_rows={len(val_df)} "
+        f"eval_rows={len(eval_df)} "
         f"device={device} "
         f"total_epochs={total_planned_epochs} "
-        f"batch_size={effective.batch_size}",
+        f"batch_size={effective.batch_size} "
+        f"weighted_sampling={not args.no_weighted_sampling}",
         flush=True,
     )
 
-    train_ds = BirdAttributeDataset(train_df, image_size=effective.image_size)
-    val_ds = BirdAttributeDataset(val_df, image_size=effective.image_size)
-
-    train_loader = DataLoader(
-        train_ds,
-        batch_size=effective.batch_size,
-        shuffle=True,
-        num_workers=effective.num_workers,
-        pin_memory=(device.type != "cpu"),
-    )
-    val_loader = DataLoader(
-        val_ds,
-        batch_size=effective.batch_size,
-        shuffle=False,
-        num_workers=effective.num_workers,
-        pin_memory=(device.type != "cpu"),
-    )
-
-    model = MultiHeadAttributeModel(
-        backbone_name=effective.backbone,
+    result = train_model(
+        train_df=train_df,
+        eval_df=eval_df,
+        cfg=effective,
+        smoke=bool(args.smoke),
         pretrained=not args.no_pretrained,
-    ).to(device)
-
-    history: list[dict[str, float]] = []
-
-    # Phase 1: train heads with frozen backbone
-    model.freeze_backbone()
-    opt1 = torch.optim.AdamW(
-        [p for p in model.parameters() if p.requires_grad],
-        lr=effective.head_lr,
-        weight_decay=effective.weight_decay,
+        device=device,
+        progress_every_batches=args.progress_every_batches,
+        weighted_sampling=not args.no_weighted_sampling,
     )
-    for epoch in range(effective.head_epochs):
-        epoch_number = epoch + 1
-        epoch_started = time.monotonic()
-        train_loss = run_epoch(
-            model=model,
-            loader=train_loader,
-            device=device,
-            optimizer=opt1,
-            phase_name="head",
-            epoch_idx=epoch_number,
-            total_epochs=effective.head_epochs,
-            progress_every_batches=args.progress_every_batches,
-        )
-        val_metrics, _ = evaluate(model=model, loader=val_loader, device=device)
-        history.append(
-            {
-                "phase": 1,
-                "epoch": epoch_number,
-                "train_loss": train_loss,
-                **val_metrics,
-            }
-        )
-        print(
-            "epoch_done "
-            f"phase=head "
-            f"epoch={epoch_number}/{effective.head_epochs} "
-            f"train_loss={train_loss:.5f} "
-            f"behavior_f1={val_metrics.get('behavior_f1', 0.0):.5f} "
-            f"legs_f1={val_metrics.get('legs_f1', 0.0):.5f} "
-            f"duration_s={time.monotonic() - epoch_started:.2f}",
-            flush=True,
-        )
 
-    # Phase 2: light fine-tuning
-    model.unfreeze_backbone()
-    opt2 = torch.optim.AdamW(model.parameters(), lr=effective.finetune_lr, weight_decay=effective.weight_decay)
-    legs_cm = np.zeros((4, 4), dtype=np.int64)
-    for epoch in range(effective.finetune_epochs):
-        epoch_number = epoch + 1
-        epoch_started = time.monotonic()
-        train_loss = run_epoch(
-            model=model,
-            loader=train_loader,
-            device=device,
-            optimizer=opt2,
-            phase_name="finetune",
-            epoch_idx=epoch_number,
-            total_epochs=effective.finetune_epochs,
-            progress_every_batches=args.progress_every_batches,
-        )
-        val_metrics, legs_cm = evaluate(model=model, loader=val_loader, device=device)
-        history.append(
-            {
-                "phase": 2,
-                "epoch": epoch_number,
-                "train_loss": train_loss,
-                **val_metrics,
-            }
-        )
-        print(
-            "epoch_done "
-            f"phase=finetune "
-            f"epoch={epoch_number}/{effective.finetune_epochs} "
-            f"train_loss={train_loss:.5f} "
-            f"behavior_f1={val_metrics.get('behavior_f1', 0.0):.5f} "
-            f"legs_f1={val_metrics.get('legs_f1', 0.0):.5f} "
-            f"duration_s={time.monotonic() - epoch_started:.2f}",
-            flush=True,
-        )
-
-    final_metrics = history[-1] if history else {}
-
-    checkpoint_path = out_dir / "checkpoint.pt"
-    torch.save(
-        {
-            "model_state": model.state_dict(),
-            "backbone": effective.backbone,
-            "image_size": effective.image_size,
-            "pretrained": not args.no_pretrained,
-            "label_maps": {
-                "readability": READABILITY_TO_ID,
-                "specie": SPECIE_TO_ID,
-                "behavior": BEHAVIOR_TO_ID,
-                "substrate": SUBSTRATE_TO_ID,
-                "legs": LEGS_TO_ID,
-            },
-        },
-        checkpoint_path,
+    checkpoint_path = save_checkpoint(
+        out_dir=out_dir,
+        model=result.model,
+        cfg=effective,
+        pretrained=not args.no_pretrained,
+        schema_version=args.schema_version,
+        supported_labels=result.supported_labels,
+        train_visible_label_counts=result.train_visible_label_counts,
     )
 
     config_out = out_dir / "config.yaml"
@@ -560,9 +783,13 @@ def main() -> int:
         yaml.safe_dump(
             {
                 "dataset_dir": str(dataset_dir),
+                "train_split": args.train_split,
+                "eval_split": args.eval_split,
                 "device": str(device),
                 "smoke": bool(args.smoke),
                 "pretrained": not args.no_pretrained,
+                "weighted_sampling": not args.no_weighted_sampling,
+                "schema_version": args.schema_version,
                 **effective.__dict__,
             },
             sort_keys=False,
@@ -574,23 +801,19 @@ def main() -> int:
     metrics_out.write_text(
         json.dumps(
             {
-                "history": history,
-                "final": final_metrics,
+                "history": result.history,
+                "final": result.final_metrics,
                 "train_rows": int(len(train_df)),
-                "val_rows": int(len(val_df)),
+                "eval_rows": int(len(eval_df)),
+                "train_split": args.train_split,
+                "eval_split": args.eval_split,
+                "supported_labels": result.supported_labels,
             },
             indent=2,
         )
         + "\n",
         encoding="utf-8",
     )
-
-    legs_cm_path = out_dir / "legs_confusion_matrix.csv"
-    pd.DataFrame(
-        legs_cm,
-        index=["one", "two", "unsure", "sitting"],
-        columns=["one", "two", "unsure", "sitting"],
-    ).to_csv(legs_cm_path)
 
     previous_metrics: dict[str, Any] | None = None
     prev_dir = find_previous_version_dir(layout.models_attributes, "convnextv2s", out_dir.name)
@@ -599,25 +822,35 @@ def main() -> int:
         if prev_metrics_path.exists():
             previous_metrics = json.loads(prev_metrics_path.read_text(encoding="utf-8"))
             previous_metrics["model_version"] = prev_dir.name
+
     report_json, report_md = write_training_report(
         out_dir=out_dir,
         dataset_dir=dataset_dir,
+        train_split=args.train_split,
+        eval_split=args.eval_split,
         device=device,
         smoke=bool(args.smoke),
         pretrained=not args.no_pretrained,
-        history=history,
-        final_metrics=final_metrics,
+        weighted_sampling=not args.no_weighted_sampling,
+        history=result.history,
+        final_metrics=result.final_metrics,
         train_rows=len(train_df),
-        val_rows=len(val_df),
+        eval_rows=len(eval_df),
         train_label_counts=summarize_labels(train_df),
-        val_label_counts=summarize_labels(val_df),
+        eval_label_counts=summarize_labels(eval_df),
+        train_visible_label_counts=result.train_visible_label_counts,
+        eval_visible_label_counts=result.eval_visible_label_counts,
+        supported_labels=result.supported_labels,
         previous_metrics=previous_metrics,
     )
+
+    confusion_outputs = write_confusion_matrices(out_dir, result.confusion_matrices)
 
     print(f"output_dir={out_dir}")
     print(f"checkpoint={checkpoint_path}")
     print(f"metrics={metrics_out}")
-    print(f"legs_confusion_matrix={legs_cm_path}")
+    for head, path in confusion_outputs.items():
+        print(f"{head}_confusion_matrix={path}")
     print(f"report_json={report_json}")
     print(f"report_md={report_md}")
     return 0

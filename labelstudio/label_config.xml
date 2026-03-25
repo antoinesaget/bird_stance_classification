@@ -61,12 +61,17 @@
             required="false"
             showInline="true">
             <Choice value="flying" hotkey="e"/>
-            <Choice value="foraging" hotkey="r"/>
-            <Choice value="resting" hotkey="t"/>
-            <Choice value="backresting" hotkey="y"/>
-            <Choice value="preening" hotkey="u"/>
-            <Choice value="display" hotkey="i"/>
-            <Choice value="unsure" hotkey="o"/>
+            <Choice value="moving" hotkey="r"/>
+            <Choice value="foraging" hotkey="t"/>
+            <Choice value="resting" hotkey="y"/>
+            <Choice value="backresting" hotkey="u"/>
+            <Choice value="bathing" hotkey="i"/>
+            <Choice value="calling" hotkey="o"/>
+            <Choice value="preening" hotkey="p"/>
+            <Choice value="display"/>
+            <Choice value="breeding"/>
+            <Choice value="other"/>
+            <Choice value="unsure"/>
           </Choices>
 
           <Choices
@@ -77,26 +82,28 @@
             choice="single-radio"
             required="false"
             showInline="true">
-            <Choice value="ground" hotkey="g"/>
+            <Choice value="bare_ground" hotkey="g"/>
+            <Choice value="vegetation" hotkey="v"/>
             <Choice value="water" hotkey="w"/>
-            <Choice value="air" hotkey="v"/>
-            <Choice value="unsure" hotkey="b"/>
+            <Choice value="air" hotkey="b"/>
+            <Choice value="unsure" hotkey="n"/>
           </Choices>
 
           <View visibleWhen="choice-selected" whenTagName="behavior" whenChoiceValue="resting,backresting">
-            <View visibleWhen="choice-selected" whenTagName="substrate" whenChoiceValue="ground,water,unsure">
-              <Header value="Legs (Resting on Ground/Water/Unsure)"/>
+            <View visibleWhen="choice-selected" whenTagName="substrate" whenChoiceValue="bare_ground,water,unsure">
+              <Header value="Stance (Resting on Bare Ground/Water/Unsure)"/>
               <Choices
-                name="legs"
+                name="stance"
                 toName="image"
                 perRegion="true"
                 whenTagName="bird_bbox"
                 choice="single-radio"
                 required="false"
                 showInline="true">
-                <Choice value="one" hotkey="1"/>
-                <Choice value="two" hotkey="2"/>
-                <Choice value="unsure" selected="true" hotkey="3"/>
+                <Choice value="unipedal" hotkey="1"/>
+                <Choice value="bipedal" hotkey="2"/>
+                <Choice value="sitting" hotkey="3"/>
+                <Choice value="unsure" selected="true" hotkey="4"/>
               </Choices>
             </View>
           </View>

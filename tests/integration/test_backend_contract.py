@@ -15,10 +15,10 @@ def test_serializer_shapes_prediction() -> None:
         specie_conf=0.85,
         behavior="resting",
         behavior_conf=0.8,
-        substrate="ground",
+        substrate="bare_ground",
         substrate_conf=0.8,
-        legs="two",
-        legs_conf=0.7,
+        stance="bipedal",
+        stance_conf=0.7,
     )
 
     out = to_label_studio_prediction(
@@ -36,7 +36,7 @@ def test_serializer_shapes_prediction() -> None:
     assert any(item["from_name"] == "isbird" for item in out["result"])
     assert any(item["from_name"] == "behavior" for item in out["result"])
     assert any(item["from_name"] == "substrate" for item in out["result"])
-    assert any(item["from_name"] == "legs" for item in out["result"])
+    assert any(item["from_name"] == "stance" for item in out["result"])
     assert not any(item["from_name"] == "image_status" for item in out["result"])
 
 
@@ -51,8 +51,8 @@ def test_serializer_hides_irrelevant_conditional_fields() -> None:
         behavior_conf=0.5,
         substrate="unsure",
         substrate_conf=0.5,
-        legs="unsure",
-        legs_conf=0.5,
+        stance="unsure",
+        stance_conf=0.5,
     )
 
     out = to_label_studio_prediction(
@@ -68,10 +68,10 @@ def test_serializer_hides_irrelevant_conditional_fields() -> None:
     assert "isbird" in from_names
     assert "behavior" not in from_names
     assert "substrate" not in from_names
-    assert "legs" not in from_names
+    assert "stance" not in from_names
 
 
-def test_serializer_allows_legs_on_unsure_substrate() -> None:
+def test_serializer_allows_stance_on_unsure_substrate() -> None:
     det = Detection(x=0.1, y=0.2, w=0.3, h=0.4, score=0.88)
     attr = AttributePrediction(
         readability="readable",
@@ -82,8 +82,8 @@ def test_serializer_allows_legs_on_unsure_substrate() -> None:
         behavior_conf=0.6,
         substrate="unsure",
         substrate_conf=0.5,
-        legs="unsure",
-        legs_conf=0.5,
+        stance="unsure",
+        stance_conf=0.5,
     )
 
     out = to_label_studio_prediction(
@@ -94,7 +94,7 @@ def test_serializer_allows_legs_on_unsure_substrate() -> None:
     )
 
     from_names = [item["from_name"] for item in out["result"]]
-    assert "legs" in from_names
+    assert "stance" in from_names
 
 
 def test_predict_response_contract_supports_both_keys() -> None:
