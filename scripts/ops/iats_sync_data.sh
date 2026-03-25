@@ -19,9 +19,19 @@ SYNC_PATHS=(
 ssh -o BatchMode=yes -o ConnectTimeout=15 "$IATS_HOST" "mkdir -p '$IATS_BIRDS_DATA_ROOT/raw_images' '$IATS_BIRDS_DATA_ROOT/metadata' '$IATS_BIRDS_DATA_ROOT/labelstudio/exports'"
 
 for rel_path in "${SYNC_PATHS[@]}"; do
+  dest_path="$IATS_BIRDS_DATA_ROOT/$rel_path"
+  parent_dir="$(dirname "$dest_path")"
+  dest_name="$(basename "$dest_path")"
+  stage_path="$parent_dir/.${dest_name}.incoming"
+  backup_path="$parent_dir/.${dest_name}.previous"
+
   log "Syncing ${rel_path} from ${TRUENAS_HOST} to ${IATS_HOST}"
+  ssh -o BatchMode=yes -o ConnectTimeout=15 "$IATS_HOST" \
+    "mkdir -p '$parent_dir' && rm -rf '$stage_path' '$backup_path' && mkdir -p '$stage_path'"
   ssh -o BatchMode=yes -o ConnectTimeout=15 "$TRUENAS_HOST" \
     "tar -C '$TRUENAS_BIRDS_DATA_ROOT/$rel_path' -cpf - ." \
     | ssh -o BatchMode=yes -o ConnectTimeout=15 "$IATS_HOST" \
-      "find '$IATS_BIRDS_DATA_ROOT/$rel_path' -mindepth 1 -maxdepth 1 -exec rm -rf {} + && tar -C '$IATS_BIRDS_DATA_ROOT/$rel_path' -xpf -"
+      "tar -C '$stage_path' -xpf -"
+  ssh -o BatchMode=yes -o ConnectTimeout=15 "$IATS_HOST" \
+    "rm -rf '$backup_path' && if [ -e '$dest_path' ]; then mv '$dest_path' '$backup_path'; fi && mv '$stage_path' '$dest_path' && rm -rf '$backup_path'"
 done

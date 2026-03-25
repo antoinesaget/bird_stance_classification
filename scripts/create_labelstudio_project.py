@@ -5,6 +5,7 @@ import argparse
 import json
 from pathlib import Path
 from typing import Any
+import urllib.parse
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 import sys
@@ -45,6 +46,19 @@ def list_paginated(base_url: str, path: str, api_token: str) -> list[dict[str, A
         elif isinstance(payload, list):
             items.extend([item for item in payload if isinstance(item, dict)])
             next_path = ""
+        elif isinstance(payload, dict) and isinstance(payload.get("tasks"), list):
+            tasks = [item for item in payload["tasks"] if isinstance(item, dict)]
+            items.extend(tasks)
+            total = int(payload.get("total") or 0)
+            if not tasks or (total and len(items) >= total):
+                next_path = ""
+            else:
+                parsed = urllib.parse.urlsplit(next_path)
+                query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+                current_page = int(query.get("page", ["1"])[0] or "1")
+                query["page"] = [str(current_page + 1)]
+                next_query = urllib.parse.urlencode(query, doseq=True)
+                next_path = urllib.parse.urlunsplit(("", "", parsed.path, next_query, ""))
         else:
             next_path = ""
     return items
