@@ -84,5 +84,12 @@ case "$APP_STATE" in
   *) die "Unexpected TrueNAS app state: ${APP_STATE:-unknown}" ;;
 esac
 
-curl -fsSI "http://127.0.0.1:${TRUENAS_APP_PORT:-30280}/user/login/" >/dev/null
-printf '[ops] app=%s state=%s\n' "$APP_ID" "$APP_STATE"
+for _ in $(seq 1 30); do
+  if curl -fsSI "http://127.0.0.1:${TRUENAS_APP_PORT:-30280}/user/login/" >/dev/null; then
+    printf '[ops] app=%s state=%s\n' "$APP_ID" "$APP_STATE"
+    exit 0
+  fi
+  sleep 2
+done
+
+die "Label Studio login endpoint did not become ready on port ${TRUENAS_APP_PORT:-30280}"
