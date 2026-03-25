@@ -48,6 +48,18 @@ def ml_predict(ml_backend_url: str, tasks: list[dict]) -> list[dict]:
     return predictions
 
 
+def ls_request_json(
+    base_url: str,
+    api_token: str,
+    path: str,
+    *,
+    method: str = "GET",
+    payload: dict | list | None = None,
+) -> dict | list:
+    resolved_token = resolve_api_token(base_url, api_token)
+    return request_json(base_url, path, resolved_token, method=method, payload=payload)
+
+
 def sanitize_prediction(prediction: dict) -> dict:
     return {
         "task": prediction.get("task"),
@@ -58,10 +70,10 @@ def sanitize_prediction(prediction: dict) -> dict:
 
 
 def import_predictions(base_url: str, project_id: int, api_token: str, predictions: list[dict]) -> dict | list:
-    return request_json(
+    return ls_request_json(
         base_url,
-        f"/api/projects/{project_id}/import/predictions",
         api_token,
+        f"/api/projects/{project_id}/import/predictions",
         method="POST",
         payload=predictions,
     )
@@ -70,10 +82,10 @@ def import_predictions(base_url: str, project_id: int, api_token: str, predictio
 def task_pages(base_url: str, project_id: int, api_token: str, page_size: int) -> list[dict]:
     page = 1
     while True:
-        payload = request_json(
+        payload = ls_request_json(
             base_url,
-            f"/api/tasks?project={project_id}&page={page}&page_size={page_size}",
             api_token,
+            f"/api/tasks?project={project_id}&page={page}&page_size={page_size}",
         )
         tasks = payload.get("tasks") if isinstance(payload, dict) else None
         if not tasks:
@@ -100,7 +112,6 @@ def chunked(items: list[dict], size: int) -> list[list[dict]]:
 
 def main() -> int:
     args = parse_args()
-    resolved_token = resolve_api_token(args.base_url, args.api_token)
 
     scanned_tasks = 0
     eligible_tasks = 0
@@ -144,7 +155,7 @@ def main() -> int:
         for batch in chunked(sanitized, args.import_batch_size):
             if not batch:
                 continue
-            response = import_predictions(args.base_url, args.project_id, resolved_token, batch)
+            response = import_predictions(args.base_url, args.project_id, args.api_token, batch)
             if isinstance(response, dict):
                 imported_predictions += int(response.get("created") or len(batch))
             else:
