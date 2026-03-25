@@ -123,7 +123,7 @@ def main() -> int:
             f"/api/projects/{target_project['id']}",
             resolved_token,
             method="PUT",
-            payload={**target_project, **project_payload},
+            payload=project_payload,
         )
 
     target_project_id = int(target_project["id"])
@@ -169,7 +169,7 @@ def main() -> int:
             f"/api/ml/{target_ml['id']}",
             resolved_token,
             method="PUT",
-            payload={**target_ml, **ml_payload},
+            payload=ml_payload,
         )
 
     report = {
