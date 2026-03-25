@@ -21,3 +21,4 @@ services:
       - "${ML_BACKEND_BIND_HOST:-0.0.0.0}:${ML_BACKEND_PORT:-9090}:9090"
     volumes:
       - ${BIRDS_DATA_ROOT}:/data/birds_project:ro
+      - ${LINES_DATA_ROOT:-data/lines_project}:/data/lines_project:ro

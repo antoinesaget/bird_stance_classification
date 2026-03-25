@@ -139,14 +139,24 @@ def _task_image_path(task: dict[str, Any]) -> pathlib.Path:
     def _resolve_local_files_query_path(value: str) -> pathlib.Path:
         # Label Studio local-files URLs commonly use query values like:
         # - birds_project/raw_images/...
+        # - lines_project/labelstudio/images_compressed/...
         # - raw_images/...
         # - /data/birds_project/raw_images/...
         decoded = urllib.parse.unquote(value).strip()
         if not decoded:
             raise ValueError("Label Studio local-files URL has empty d= query value")
 
+        data_root_parent = env.birds_data_root.parent
+
+        if decoded == "/data":
+            return _safe_path(str(data_root_parent))
+
         if decoded == "/data/birds_project":
             return _safe_path(str(env.birds_data_root))
+
+        if decoded.startswith("/data/"):
+            rel = decoded.removeprefix("/data/").lstrip("/")
+            return _safe_path(str(data_root_parent / rel))
 
         if decoded.startswith("/data/birds_project/"):
             rel = decoded.removeprefix("/data/birds_project/").lstrip("/")
@@ -159,11 +169,16 @@ def _task_image_path(task: dict[str, Any]) -> pathlib.Path:
             if decoded.startswith("data/birds_project/"):
                 rel = decoded.removeprefix("data/birds_project/").lstrip("/")
                 return _safe_path(str(env.birds_data_root / rel))
-            return _safe_path(f"/{decoded}")
+            rel = decoded.removeprefix("data/").lstrip("/")
+            return _safe_path(str(data_root_parent / rel))
 
         if decoded.startswith("birds_project/"):
             rel = decoded.removeprefix("birds_project/").lstrip("/")
             return _safe_path(str(env.birds_data_root / rel))
+
+        dataset, sep, remainder = decoded.partition("/")
+        if sep and dataset:
+            return _safe_path(str(data_root_parent / dataset / remainder))
 
         return _safe_path(str(env.birds_data_root / decoded))
 
