@@ -5,6 +5,11 @@ import argparse
 import json
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+import sys
+
+sys.path.insert(0, str(REPO_ROOT))
+
 from scripts.export_labelstudio_snapshot import request_json, resolve_api_token
 
 
