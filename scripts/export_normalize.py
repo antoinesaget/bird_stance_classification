@@ -246,9 +246,11 @@ def extract_task_rows(
             stance = None
         else:
             if readability is None:
-                raise ValueError(f"Missing readability for image {image_id}, region {region_id}")
+                migration_stats["dropped_incomplete_positive_regions"] += 1
+                continue
             if specie is None:
-                raise ValueError(f"Missing specie for image {image_id}, region {region_id}")
+                migration_stats["dropped_incomplete_positive_regions"] += 1
+                continue
             if readability not in valid_readability:
                 raise ValueError(f"Invalid readability '{readability}' for image {image_id}")
             if specie not in valid_specie:
@@ -359,6 +361,7 @@ def main() -> int:
         "tasks_with_annotations": 0,
         "tasks_with_cancelled_annotations": 0,
         "assumed_isbird_yes_missing_flag": 0,
+        "dropped_incomplete_positive_regions": 0,
         "mapped_ground_to_bare_ground": 0,
         "mapped_legacy_one_to_unipedal": 0,
         "mapped_legacy_two_to_bipedal": 0,
