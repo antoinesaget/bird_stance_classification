@@ -2,11 +2,11 @@
 
 ## 1) Keep The Three Checkouts In Sync
 
-Use the same branch on local, `iats`, and TrueNAS. The current live branch is `codex/isbird-schema-v2`.
+Use the same branch on local, `iats`, and TrueNAS. The live branch is `main`.
 
 ```bash
-make iats-pull DEPLOY_BRANCH=codex/isbird-schema-v2
-make truenas-pull DEPLOY_BRANCH=codex/isbird-schema-v2
+make iats-pull
+make truenas-pull
 ```
 
 ## 2) Bird Annotation Export And Training Flow
@@ -14,13 +14,13 @@ make truenas-pull DEPLOY_BRANCH=codex/isbird-schema-v2
 Export annotations from TrueNAS:
 
 ```bash
-make truenas-export-annotations DEPLOY_BRANCH=codex/isbird-schema-v2 PROJECT_ID=4 EXPORT_NAME=ann_v002_legacy
+make truenas-export-annotations PROJECT_ID=4 EXPORT_NAME=ann_v002_legacy
 ```
 
 Copy exports to `iats`:
 
 ```bash
-make iats-import-exports DEPLOY_BRANCH=codex/isbird-schema-v2 PROJECT_ID=4 EXPORT_NAME=ann_v002_legacy
+make iats-import-exports PROJECT_ID=4 EXPORT_NAME=ann_v002_legacy
 ```
 
 Or sync all canonical bird inputs:
@@ -32,25 +32,25 @@ make iats-sync-data
 Run attribute-model CV:
 
 ```bash
-make iats-train-attributes-cv DEPLOY_BRANCH=codex/isbird-schema-v2 DATASET_DIR=/home/antoine/bird_stance_classification/data/birds_project/derived/datasets/ds_v001
+make iats-train-attributes-cv DATASET_DIR=/home/antoine/bird_stance_classification/data/birds_project/derived/datasets/ds_v001
 ```
 
 Run final attribute training:
 
 ```bash
-make iats-train-attributes-final DEPLOY_BRANCH=codex/isbird-schema-v2 DATASET_DIR=/home/antoine/bird_stance_classification/data/birds_project/derived/datasets/ds_v001
+make iats-train-attributes-final DATASET_DIR=/home/antoine/bird_stance_classification/data/birds_project/derived/datasets/ds_v001
 ```
 
 Deploy the trained Model B checkpoint:
 
 ```bash
-make iats-deploy-model-b DEPLOY_BRANCH=codex/isbird-schema-v2 MODEL_B_SOURCE=/home/antoine/bird_stance_classification/data/birds_project/models/attributes/convnextv2s_v001/checkpoint.pt PROMOTION_LABEL=ann_v002_legacy
+make iats-deploy-model-b MODEL_B_SOURCE=/home/antoine/bird_stance_classification/data/birds_project/models/attributes/convnextv2s_v001/checkpoint.pt PROMOTION_LABEL=ann_v002_legacy
 ```
 
 ## 3) TrueNAS Frontend Deploy Flow
 
 ```bash
-make truenas-deploy-ui DEPLOY_BRANCH=codex/isbird-schema-v2
+make truenas-deploy-ui
 make smoke-remote
 ```
 
@@ -61,7 +61,7 @@ Use this after repo changes that affect the stable Label Studio frontend, local-
 Prepare the `q60` mirror and task bundle:
 
 ```bash
-make truenas-prepare-lines-batch DEPLOY_BRANCH=codex/isbird-schema-v2 \
+make truenas-prepare-lines-batch \
   LINES_PROJECT_ID=7 \
   LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60 \
   LINES_JPEG_QUALITY=60 \
@@ -72,7 +72,7 @@ make truenas-prepare-lines-batch DEPLOY_BRANCH=codex/isbird-schema-v2 \
 Import the task bundle:
 
 ```bash
-make truenas-import-lines-batch DEPLOY_BRANCH=codex/isbird-schema-v2 \
+make truenas-import-lines-batch \
   LINES_PROJECT_ID=7 \
   LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60
 ```
@@ -80,7 +80,7 @@ make truenas-import-lines-batch DEPLOY_BRANCH=codex/isbird-schema-v2 \
 Persist predictions instead of generating them on the fly:
 
 ```bash
-make truenas-prefill-lines-predictions DEPLOY_BRANCH=codex/isbird-schema-v2 \
+make truenas-prefill-lines-predictions \
   LINES_PROJECT_ID=7 \
   LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60 \
   LINES_ONLY_MISSING=1

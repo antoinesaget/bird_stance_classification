@@ -6,7 +6,7 @@ This repo has three deployment surfaces:
 - `deploy/docker-compose.iats-ml.yml`
 - `deploy/docker-compose.truenas.yml`
 
-The live branch today is `codex/isbird-schema-v2`. Use that as `DEPLOY_BRANCH` until the current production state is merged elsewhere.
+The live branch is `main`. The Makefile already defaults `DEPLOY_BRANCH` to `main`, so only pass it explicitly for temporary branch rollouts.
 
 ## Host Roles
 
@@ -45,8 +45,8 @@ Critical values:
 ## Clean Pull / Bootstrap
 
 ```bash
-make iats-pull DEPLOY_BRANCH=codex/isbird-schema-v2
-make truenas-pull DEPLOY_BRANCH=codex/isbird-schema-v2
+make iats-pull
+make truenas-pull
 ```
 
 Behavior:
@@ -59,7 +59,7 @@ Behavior:
 ## Deploy TrueNAS UI
 
 ```bash
-make truenas-deploy-ui DEPLOY_BRANCH=codex/isbird-schema-v2
+make truenas-deploy-ui
 ```
 
 This re-renders `deploy/docker-compose.truenas.yml` and updates the existing `bird-stance-classification` app while preserving persistent state mounts.
@@ -75,7 +75,7 @@ make iats-sync-data
 Export-only sync:
 
 ```bash
-make iats-import-exports DEPLOY_BRANCH=codex/isbird-schema-v2 PROJECT_ID=4 EXPORT_NAME=ann_v002_legacy
+make iats-import-exports PROJECT_ID=4 EXPORT_NAME=ann_v002_legacy
 ```
 
 The sync path is intentionally one-way for canonical inputs:
@@ -88,25 +88,25 @@ The sync path is intentionally one-way for canonical inputs:
 Cross-validation:
 
 ```bash
-make iats-train-attributes-cv DEPLOY_BRANCH=codex/isbird-schema-v2 DATASET_DIR=/home/antoine/bird_stance_classification/data/birds_project/derived/datasets/ds_v001
+make iats-train-attributes-cv DATASET_DIR=/home/antoine/bird_stance_classification/data/birds_project/derived/datasets/ds_v001
 ```
 
 Final training:
 
 ```bash
-make iats-train-attributes-final DEPLOY_BRANCH=codex/isbird-schema-v2 DATASET_DIR=/home/antoine/bird_stance_classification/data/birds_project/derived/datasets/ds_v001
+make iats-train-attributes-final DATASET_DIR=/home/antoine/bird_stance_classification/data/birds_project/derived/datasets/ds_v001
 ```
 
 Promote and deploy the final checkpoint:
 
 ```bash
-make iats-deploy-model-b DEPLOY_BRANCH=codex/isbird-schema-v2 MODEL_B_SOURCE=/home/antoine/bird_stance_classification/data/birds_project/models/attributes/convnextv2s_v001/checkpoint.pt PROMOTION_LABEL=ann_v002_legacy
+make iats-deploy-model-b MODEL_B_SOURCE=/home/antoine/bird_stance_classification/data/birds_project/models/attributes/convnextv2s_v001/checkpoint.pt PROMOTION_LABEL=ann_v002_legacy
 ```
 
 Deploy or re-deploy the ML backend container itself:
 
 ```bash
-make iats-deploy-ml DEPLOY_BRANCH=codex/isbird-schema-v2
+make iats-deploy-ml
 ```
 
 ## `lines_project` Batch Flow On TrueNAS
@@ -114,19 +114,19 @@ make iats-deploy-ml DEPLOY_BRANCH=codex/isbird-schema-v2
 Prepare the `q60` mirror and import bundle:
 
 ```bash
-make truenas-prepare-lines-batch DEPLOY_BRANCH=codex/isbird-schema-v2 LINES_PROJECT_ID=7 LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60
+make truenas-prepare-lines-batch LINES_PROJECT_ID=7 LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60
 ```
 
 Import the generated task bundle into project `7`:
 
 ```bash
-make truenas-import-lines-batch DEPLOY_BRANCH=codex/isbird-schema-v2 LINES_PROJECT_ID=7 LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60
+make truenas-import-lines-batch LINES_PROJECT_ID=7 LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60
 ```
 
 Persist predictions so they do not have to be generated on the fly:
 
 ```bash
-make truenas-prefill-lines-predictions DEPLOY_BRANCH=codex/isbird-schema-v2 LINES_PROJECT_ID=7 LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60 LINES_ONLY_MISSING=1
+make truenas-prefill-lines-predictions LINES_PROJECT_ID=7 LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60 LINES_ONLY_MISSING=1
 ```
 
 ## Verification

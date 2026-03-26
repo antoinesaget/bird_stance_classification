@@ -4,9 +4,8 @@ Last refreshed: 2026-03-26
 
 ## Repo / Branch State
 
-- Active deployed branch: `codex/isbird-schema-v2`
-- Cleanup started from synced baseline commit `a190e32`
-- After this cleanup, local, `iats`, and TrueNAS should all be on the same latest commit of `codex/isbird-schema-v2`
+- Active deployed branch: `main`
+- Local, `iats`, and TrueNAS should all stay on the same latest commit of `main`
 - To confirm the exact live commit on any host:
 
 ```bash
@@ -75,17 +74,19 @@ git rev-parse HEAD
 
 ## Project 7 Prediction Prefill Status
 
-- Stored predictions on project `7`: `4960 / 5000`
+- Stored predictions on project `7`: `5000 / 5000`
 - Latest persisted prefill report summary:
   - `scanned_tasks=5000`
-  - `skipped_existing=1079`
-  - `predicted_tasks=3878`
-  - `imported_predictions=3878`
-  - `empty_predictions=43`
+  - `eligible_tasks=40`
+  - `skipped_existing=4960`
+  - `predicted_tasks=40`
+  - `imported_predictions=40`
+  - `empty_predictions=40`
+  - `stored_empty_predictions=40`
 - Interpretation:
-  - most tasks already have persisted predictions
-  - remaining no-prediction tasks are concentrated in the `empty_result` subset from the report
-  - this is not a frontend outage; it is a content/inference follow-up item
+  - all tasks now have persisted prediction rows
+  - the final 40 tasks were stored as explicit empty predictions
+  - project `7` should no longer need on-the-fly backend calls for untouched tasks in the current batch
 
 ## Cleanup Archives
 

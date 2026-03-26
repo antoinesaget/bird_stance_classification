@@ -6,7 +6,7 @@ BirdSys is operated from three synchronized checkouts with distinct roles:
 - TrueNAS at `/mnt/apps/code/bird_stance_classification`: stable Label Studio/Postgres/public UI host for [birds.ashs.live](https://birds.ashs.live).
 - Local checkout: orchestration, light tests, and repo maintenance.
 
-The current deployed branch is `codex/isbird-schema-v2`. All three checkouts should stay on the same commit unless a rollout is actively in progress.
+The deployed branch is `main`. All three checkouts should stay on the same commit unless a rollout is actively in progress.
 
 ## Source Of Truth
 
@@ -30,41 +30,42 @@ The current deployed branch is `codex/isbird-schema-v2`. All three checkouts sho
 Sync all checkouts to the deployed branch tip:
 
 ```bash
-make iats-pull DEPLOY_BRANCH=codex/isbird-schema-v2
-make truenas-pull DEPLOY_BRANCH=codex/isbird-schema-v2
+make iats-pull
+make truenas-pull
 ```
 
 Sync training inputs and annotation exports onto `iats`:
 
 ```bash
 make iats-sync-data
-make iats-import-exports DEPLOY_BRANCH=codex/isbird-schema-v2 PROJECT_ID=4 EXPORT_NAME=ann_v002_legacy
+make iats-import-exports PROJECT_ID=4 EXPORT_NAME=ann_v002_legacy
 ```
 
 Train and deploy the attribute model on `iats`:
 
 ```bash
-make iats-train-attributes-cv DEPLOY_BRANCH=codex/isbird-schema-v2 DATASET_DIR=/home/antoine/bird_stance_classification/data/birds_project/derived/datasets/ds_v001
-make iats-train-attributes-final DEPLOY_BRANCH=codex/isbird-schema-v2 DATASET_DIR=/home/antoine/bird_stance_classification/data/birds_project/derived/datasets/ds_v001
-make iats-deploy-model-b DEPLOY_BRANCH=codex/isbird-schema-v2 MODEL_B_SOURCE=/home/antoine/bird_stance_classification/data/birds_project/models/attributes/convnextv2s_v001/checkpoint.pt
+make iats-train-attributes-cv DATASET_DIR=/home/antoine/bird_stance_classification/data/birds_project/derived/datasets/ds_v001
+make iats-train-attributes-final DATASET_DIR=/home/antoine/bird_stance_classification/data/birds_project/derived/datasets/ds_v001
+make iats-deploy-model-b MODEL_B_SOURCE=/home/antoine/bird_stance_classification/data/birds_project/models/attributes/convnextv2s_v001/checkpoint.pt
 ```
 
 Deploy or verify the stable frontend on TrueNAS:
 
 ```bash
-make truenas-deploy-ui DEPLOY_BRANCH=codex/isbird-schema-v2
+make truenas-deploy-ui
 make smoke-remote
 ```
 
 Prepare/import/prefill the `lines_project` batch:
 
 ```bash
-make truenas-prepare-lines-batch DEPLOY_BRANCH=codex/isbird-schema-v2 LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60
-make truenas-import-lines-batch DEPLOY_BRANCH=codex/isbird-schema-v2 LINES_PROJECT_ID=7 LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60
-make truenas-prefill-lines-predictions DEPLOY_BRANCH=codex/isbird-schema-v2 LINES_PROJECT_ID=7 LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60 LINES_ONLY_MISSING=1
+make truenas-prepare-lines-batch LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60
+make truenas-import-lines-batch LINES_PROJECT_ID=7 LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60
+make truenas-prefill-lines-predictions LINES_PROJECT_ID=7 LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60 LINES_ONLY_MISSING=1
 ```
 
 ## Notes
 
 - Fetch/bootstrap uses the public HTTPS origin by default so `iats` can pull without separate GitHub SSH setup.
 - Live runtime paths and current project/model IDs are documented in [`docs/current_state.md`](/Users/antoine/truenas_migration/bird_stance_classification/docs/current_state.md).
+- `DEPLOY_BRANCH` defaults to `main`; only override it for temporary branch rollouts.
