@@ -91,14 +91,14 @@ def heuristic_attributes(det_conf: float, bbox_h: float) -> dict[str, object]:
 
     substrate_probs = softmax(
         [
-            0.55 + bbox_h,  # ground
+            0.55 + bbox_h,  # bare_ground
             0.2 + bbox_h * 0.6,  # water
             0.4 + (1.0 - bbox_h),  # air
             0.15 + (1.0 - det_conf) * 0.5,  # unsure
         ]
     )
 
-    one_p, two_p, unsure_p, sitting_p = softmax([0.35, 0.55, 0.15 + (1.0 - det_conf), 0.25])
+    unipedal_p, bipedal_p, sitting_p, unsure_stance_p = softmax([0.35, 0.55, 0.25, 0.15 + (1.0 - det_conf)])
 
     return {
         "readability_probs": {"readable": readable, "occluded": occluded, "unreadable": unreadable},
@@ -113,12 +113,17 @@ def heuristic_attributes(det_conf: float, bbox_h: float) -> dict[str, object]:
             "unsure": behavior_probs[6],
         },
         "substrate_probs": {
-            "ground": substrate_probs[0],
+            "bare_ground": substrate_probs[0],
             "water": substrate_probs[1],
             "air": substrate_probs[2],
             "unsure": substrate_probs[3],
         },
-        "legs_probs": {"one": one_p, "two": two_p, "unsure": unsure_p, "sitting": sitting_p},
+        "stance_probs": {
+            "unipedal": unipedal_p,
+            "bipedal": bipedal_p,
+            "sitting": sitting_p,
+            "unsure": unsure_stance_p,
+        },
     }
 
 

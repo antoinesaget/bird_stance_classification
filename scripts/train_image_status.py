@@ -29,8 +29,8 @@ from birdsys.training.metrics import confusion_matrix, macro_f1
 from birdsys.training.models import ImageStatusModel
 
 STATUS_TO_ID = {
-    "no_usable_birds": 0,
-    "has_usable_birds": 1,
+    False: 0,
+    True: 1,
 }
 
 
@@ -64,12 +64,12 @@ class ImageStatusDataset(Dataset):
         image_path = pathlib.Path(str(row["filepath"]))
         with Image.open(image_path).convert("RGB") as img:
             x = self.transform(img)
-        y = STATUS_TO_ID[str(row["image_status"]).strip().lower()]
+        y = STATUS_TO_ID[bool(row["image_usable_bool"])]
         return {"image": x, "label": torch.tensor(y, dtype=torch.long)}
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train Model C image_status classifier")
+    parser = argparse.ArgumentParser(description="Train Model C image_usable classifier (deprecated path)")
     parser.add_argument("--annotation-version", required=True)
     parser.add_argument("--config", default="config/train_image_status.yaml")
     parser.add_argument("--data-root", default=os.getenv("BIRDS_DATA_ROOT", "/data/birds_project"))
@@ -108,12 +108,33 @@ def stable_split_bucket(site_id: str | None, image_id: str) -> int:
     return abs(hash(f"{site_id or ''}:{image_id}")) % 100
 
 
+def _normalize_image_usable(value: Any) -> bool | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    raw = str(value).strip().lower()
+    if raw in {"true", "1", "yes", "has_usable_birds"}:
+        return True
+    if raw in {"false", "0", "no", "no_usable_birds"}:
+        return False
+    return None
+
+
 def prepare_frame(data_root: pathlib.Path, annotation_version: str) -> pd.DataFrame:
     images_labels = pd.read_parquet(data_root / "labelstudio" / "normalized" / annotation_version / "images_labels.parquet")
     metadata = pd.read_parquet(data_root / "metadata" / "images.parquet")
 
     frame = images_labels.merge(metadata[["image_id", "filepath", "site_id"]], on="image_id", how="left", validate="one_to_one")
-    frame = frame[frame["image_status"].isin(["has_usable_birds", "no_usable_birds"])].copy()
+    if "image_usable" in frame.columns:
+        frame["image_usable_bool"] = frame["image_usable"].map(_normalize_image_usable)
+    elif "image_status" in frame.columns:
+        frame["image_usable_bool"] = frame["image_status"].map(_normalize_image_usable)
+    else:
+        frame["image_usable_bool"] = None
+    frame = frame[frame["image_usable_bool"].isin([True, False])].copy()
     frame = frame[frame["filepath"].map(lambda p: pathlib.Path(str(p)).exists())].reset_index(drop=True)
     frame["split_bucket"] = [stable_split_bucket(site, image_id) for site, image_id in zip(frame["site_id"], frame["image_id"])]
     frame["split"] = np.where(frame["split_bucket"] < 80, "train", np.where(frame["split_bucket"] < 90, "val", "test"))
@@ -233,7 +254,7 @@ def main() -> int:
     data_root = pathlib.Path(args.data_root).expanduser().resolve()
     frame = prepare_frame(data_root, args.annotation_version)
     if frame.empty:
-        raise RuntimeError("No rows available for image_status training")
+        raise RuntimeError("No rows available for image_usable training")
 
     if args.smoke:
         frame = frame.groupby("split", group_keys=False).head(64).reset_index(drop=True)
@@ -342,7 +363,7 @@ def main() -> int:
             "test": int(len(test_df)),
             "class_balance": {
                 k: int(v)
-                for k, v in frame["image_status"].value_counts().sort_index().to_dict().items()
+                for k, v in frame["image_usable_bool"].value_counts().sort_index().to_dict().items()
             },
         },
     }

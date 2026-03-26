@@ -25,15 +25,15 @@ class MultiHeadAttributeModel(nn.Module):
 
         # Default to all heads if not specified
         if heads is None:
-            heads = ["readability", "specie", "behavior", "substrate", "legs"]
-        
+            heads = ["readability", "specie", "behavior", "substrate", "stance"]
+
         self.heads = heads
         head_configs = {
             "readability": 3,
             "specie": 3,
-            "behavior": 7,
-            "substrate": 4,
-            "legs": 4,
+            "behavior": 12,
+            "substrate": 5,
+            "stance": 4,
         }
 
         for head in heads:

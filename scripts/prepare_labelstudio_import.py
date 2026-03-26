@@ -30,6 +30,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", default="")
     parser.add_argument("--output-prefix", default="")
     parser.add_argument(
+        "--image-relative-root",
+        default="raw_images",
+        help="Image root under data_root used for task URLs (e.g. raw_images or labelstudio/images_compressed/q60)",
+    )
+    parser.add_argument(
         "--ls-local-files-prefix",
         default="/data/local-files/?d=",
         help="Prefix for Label Studio local-files URL",
@@ -71,7 +76,11 @@ def main() -> int:
     data_root = pathlib.Path(args.data_root).expanduser().resolve()
     layout = ensure_layout(data_root)
 
-    site_dir = layout.raw_images / args.site_id
+    image_root_rel = args.image_relative_root.strip().strip("/")
+    if not image_root_rel:
+        raise ValueError("--image-relative-root cannot be empty")
+
+    site_dir = data_root / image_root_rel / args.site_id
     if not site_dir.exists():
         raise FileNotFoundError(site_dir)
 
@@ -102,7 +111,7 @@ def main() -> int:
     csv_rows: list[dict[str, str]] = []
 
     for image in selected:
-        rel_for_ls = f"{data_root_name}/raw_images/{args.site_id}/{image.name}"
+        rel_for_ls = f"{data_root_name}/{image_root_rel}/{args.site_id}/{image.name}"
         ls_url = f"{args.ls_local_files_prefix}{rel_for_ls}"
         task = {
             "image_id": image.stem,

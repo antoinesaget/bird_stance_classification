@@ -284,8 +284,8 @@ def main() -> int:
                     "behavior_conf": attr.behavior_conf,
                     "substrate": attr.substrate,
                     "substrate_conf": attr.substrate_conf,
-                    "legs": attr.legs,
-                    "legs_conf": attr.legs_conf,
+                    "stance": attr.stance,
+                    "stance_conf": attr.stance_conf,
                     "is_kept_behavior": bool(is_kept),
                 }
             )

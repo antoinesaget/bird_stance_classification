@@ -1,125 +1,70 @@
-# BirdLeg Deployment Guide (Ubuntu + RTX 3090)
+# BirdSys
 
-This repo is set up for:
-- Label Studio + Postgres in Docker
-- ML backend on host (GPU via CUDA)
-- Data/images copied separately (external SSD)
+BirdSys is operated from three synchronized checkouts with distinct roles:
 
-## 1) Prepare GitHub repo (one-time)
+- `iats` at `/home/antoine/bird_stance_classification`: primary engineering machine, training host, experiment host, and live ML backend host.
+- TrueNAS at `/mnt/apps/code/bird_stance_classification`: stable Label Studio/Postgres/public UI host for [birds.ashs.live](https://birds.ashs.live).
+- Local checkout: orchestration, light tests, and repo maintenance.
 
-`gh` CLI is not installed in this workspace, so use either GitHub web UI or git commands below.
+The current deployed branch is `codex/isbird-schema-v2`. All three checkouts should stay on the same commit unless a rollout is actively in progress.
 
-Create an empty GitHub repo, then from this project root:
+## Source Of Truth
 
-```bash
-git remote add origin <YOUR_GITHUB_REPO_URL>
-git branch -M main
-git add .
-git commit -m "Initial deployment-ready setup"
-git push -u origin main
-```
+- Canonical bird dataset: TrueNAS `/mnt/tank/media/birds_project`
+- Canonical lines dataset: TrueNAS `/mnt/tank/media/lines_project`
+- Training copy for bird models: `iats` `/home/antoine/bird_stance_classification/data/birds_project`
+- Served ML backend: `iats` only
+- Public Label Studio frontend: TrueNAS only
 
-On Ubuntu:
+## Active Docs
 
-```bash
-git clone <YOUR_GITHUB_REPO_URL> bird_leg
-cd bird_leg
-```
+- Runtime and path contract: [`ENVIRONMENT.md`](/Users/antoine/truenas_migration/bird_stance_classification/ENVIRONMENT.md)
+- Deployment and verification flow: [`DEPLOYMENT.md`](/Users/antoine/truenas_migration/bird_stance_classification/DEPLOYMENT.md)
+- Current live state snapshot: [`docs/current_state.md`](/Users/antoine/truenas_migration/bird_stance_classification/docs/current_state.md)
+- Command-oriented workflows: [`docs/ops_workflows.md`](/Users/antoine/truenas_migration/bird_stance_classification/docs/ops_workflows.md)
+- Current annotation schema comparison: [`docs/annotation_schema_current_vs_updates.md`](/Users/antoine/truenas_migration/bird_stance_classification/docs/annotation_schema_current_vs_updates.md)
+- Historical docs and superseded plans: [`docs/archive/README.md`](/Users/antoine/truenas_migration/bird_stance_classification/docs/archive/README.md)
 
-## 2) Copy heavy assets from external SSD
+## Common Commands
 
-The repository excludes datasets and weights (`.pt`, raw images, outputs).
-
-Copy to your Ubuntu clone:
+Sync all checkouts to the deployed branch tip:
 
 ```bash
-mkdir -p data/birds_project/raw_images
-cp /media/$USER/<SSD_NAME>/yolo11m.pt .
-rsync -a /media/$USER/<SSD_NAME>/birds_project/raw_images/ data/birds_project/raw_images/
+make iats-pull DEPLOY_BRANCH=codex/isbird-schema-v2
+make truenas-pull DEPLOY_BRANCH=codex/isbird-schema-v2
 ```
 
-Adjust paths to match your SSD layout.
-
-## 3) Configure environment
+Sync training inputs and annotation exports onto `iats`:
 
 ```bash
-cp .env.example .env
+make iats-sync-data
+make iats-import-exports DEPLOY_BRANCH=codex/isbird-schema-v2 PROJECT_ID=4 EXPORT_NAME=ann_v002_legacy
 ```
 
-Edit `.env`:
-
-```env
-BIRDS_DATA_ROOT=/home/<you>/bird_leg/data/birds_project
-MODEL_A_WEIGHTS=/home/<you>/bird_leg/yolo11m.pt
-MODEL_A_DEVICE=0
-LABEL_STUDIO_URL=http://localhost:8080
-LABEL_STUDIO_USERNAME=admin@local
-LABEL_STUDIO_PASSWORD=<strong-admin-password>
-```
-
-## 4) Start Docker services
+Train and deploy the attribute model on `iats`:
 
 ```bash
-docker compose --env-file .env -f deploy/docker-compose.yml up -d postgres label-studio
+make iats-train-attributes-cv DEPLOY_BRANCH=codex/isbird-schema-v2 DATASET_DIR=/home/antoine/bird_stance_classification/data/birds_project/derived/datasets/ds_v001
+make iats-train-attributes-final DEPLOY_BRANCH=codex/isbird-schema-v2 DATASET_DIR=/home/antoine/bird_stance_classification/data/birds_project/derived/datasets/ds_v001
+make iats-deploy-model-b DEPLOY_BRANCH=codex/isbird-schema-v2 MODEL_B_SOURCE=/home/antoine/bird_stance_classification/data/birds_project/models/attributes/convnextv2s_v001/checkpoint.pt
 ```
 
-The compose file includes:
-- env-driven Label Studio credentials (no hardcoded `admin/admin`)
-- Linux `host.docker.internal` mapping via `extra_hosts`
-
-## 5) Start ML backend on host (GPU)
+Deploy or verify the stable frontend on TrueNAS:
 
 ```bash
-uv sync --python 3.11
-set -a; source .env; set +a
-MODEL_A_DEVICE=0 uv run uvicorn services.ml_backend.app.main:app --host 0.0.0.0 --port 9091
+make truenas-deploy-ui DEPLOY_BRANCH=codex/isbird-schema-v2
+make smoke-remote
 ```
 
-Checks:
+Prepare/import/prefill the `lines_project` batch:
 
 ```bash
-uv run python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
-curl -sS http://127.0.0.1:9091/health
+make truenas-prepare-lines-batch DEPLOY_BRANCH=codex/isbird-schema-v2 LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60
+make truenas-import-lines-batch DEPLOY_BRANCH=codex/isbird-schema-v2 LINES_PROJECT_ID=7 LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60
+make truenas-prefill-lines-predictions DEPLOY_BRANCH=codex/isbird-schema-v2 LINES_PROJECT_ID=7 LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60 LINES_ONLY_MISSING=1
 ```
 
-In Label Studio, set ML backend URL to:
+## Notes
 
-```text
-http://host.docker.internal:9091
-```
-
-## 6) Rotate admin password + create Adrien account
-
-Run after Label Studio container is up:
-
-```bash
-LABEL_STUDIO_ADMIN_PASSWORD='<strong-admin-password>' \
-LABEL_STUDIO_ADRIEN_PASSWORD='<strong-adrien-password>' \
-LABEL_STUDIO_ADRIEN_EMAIL='adrien@local' \
-LABEL_STUDIO_ADRIEN_USERNAME='adrien' \
-./scripts/bootstrap_labelstudio_users.sh
-```
-
-This script is idempotent:
-- sets/rotates admin credentials
-- creates or updates Adrien account
-- verifies login works in-container for the active auth mode
-
-Optional: `LABEL_STUDIO_ADRIEN_LOGIN` overrides the login identifier used by auth checks and user updates.
-For email-based auth (`USERNAME_FIELD=email`), this value must be an email address.
-
-## 7) Share with your biologist friend
-
-Expose Label Studio only (port 8080):
-
-```bash
-ngrok http --basic-auth="annotator:<very-strong-password>" 8080
-```
-
-Do not expose ML backend ports (`9090`, `9091`) publicly.
-
-## Notes on performance
-
-- `ngrok` works but adds latency and bandwidth caps (especially on free plan).
-- For heavy image annotation, a small VPS reverse proxy (Caddy/Nginx + HTTPS) pointing to your home endpoint is usually smoother and more stable than free ngrok.
-- If you want zero client install for your friend, Cloudflare Tunnel is often the best compromise (better stability than ngrok free, browser-only access for annotators).
+- Fetch/bootstrap uses the public HTTPS origin by default so `iats` can pull without separate GitHub SSH setup.
+- Live runtime paths and current project/model IDs are documented in [`docs/current_state.md`](/Users/antoine/truenas_migration/bird_stance_classification/docs/current_state.md).

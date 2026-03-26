@@ -11,6 +11,8 @@
 .env
 .env.*
 !.env.example
+deploy/env/*.env
+!deploy/env/*.example
 
 # Python bytecode and caches
 __pycache__/
@@ -37,14 +39,19 @@ dist/
 .jupyter/
 .local/
 .cache/
+.analysis/
 
 # Large local datasets and experiment outputs
 /data/
 /scraped_images/
-/epxeriment_results/
+/experiment_results/
 output/
 notebooks/
 ML__*.csv
+project-*.json
+ann_v*.json
+tasks.json
+model_compare_pairwise/
 
 # Model and heavy ML artifacts
 *.pt

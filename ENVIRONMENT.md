@@ -1,114 +1,112 @@
 # BirdSys Environment Contract
 
-## Scope
-This file defines the reproducible runtime contract for the Bird Annotation & Classification System on:
-- Linux + NVIDIA RTX 3090 (primary training/inference)
-- macOS + Apple Silicon M4 (development + light inference)
+## Runtime Roles
 
-## Baseline
-- Python: `3.11.x`
-- Dependency manager: [`uv`](https://github.com/astral-sh/uv)
-- Runtime split:
-  - Docker Compose: Label Studio + Postgres + ML backend service
-  - Host `uv` environment: data pipelines, dataset builds, training jobs
-- Canonical data root: `/data/birds_project`
+- Local
+  - repo maintenance
+  - light smoke tests
+  - remote orchestration
+- `iats`
+  - primary engineering checkout
+  - training and experiment host
+  - live ML backend host
+- TrueNAS
+  - stable Label Studio/Postgres/public UI host
+  - canonical storage host for bird and lines datasets
 
-If `/data` is unavailable (read-only or restricted), use a local override such as:
-`/Users/antoine/bird_leg/data/birds_project` and set `BIRDS_DATA_ROOT` accordingly.
+## Canonical Paths
 
-## Required Environment Variables
-- `BIRDS_DATA_ROOT` (default: `/data/birds_project`)
-- `LABEL_STUDIO_URL` (example: `http://localhost:8080`)
-- `LABEL_STUDIO_API_TOKEN` (Label Studio personal token)
-- `MODEL_A_WEIGHTS` (host checkpoint path for local scripts, example: `/Users/antoine/bird_leg/yolo11m.pt`)
-- `MODEL_A_DEVICE` (`auto`, `cpu`, `mps`, or CUDA index like `0`; default `auto`)
-- `MODEL_A_IMGSZ` (default `1280`)
-- `MODEL_A_MAX_DET` (default `300`)
-- `MODEL_A_CONF` (default `0.25`)
-- `MODEL_A_IOU` (default `0.45`)
-- `MODEL_B_CHECKPOINT` (Model B checkpoint path)
-- `MODEL_C_CHECKPOINT` (Model C checkpoint path)
+### Local
 
-Compose binds `MODEL_A_WEIGHTS` into the ML backend container at `/models/model_a/weights.pt`.
+- Repo root: `/Users/antoine/truenas_migration/bird_stance_classification`
+- Archive root for local-only cleanup/WIP bundles: `/Users/antoine/truenas_migration/_archives/bird_stance_classification`
 
-## Optional host ML backend mode (for Apple Silicon acceleration)
-Use this mode when you want Label Studio (Docker) to call an ML backend running on the host `uv` environment.
+### `iats`
 
-1. Stop the containerized backend:
-```bash
-make stop-ml-backend-container
-```
-2. Start host backend:
-```bash
-MODEL_A_DEVICE=auto make run-ml-backend-host
-```
-3. In Label Studio ML settings, set backend URL to:
-`http://host.docker.internal:9091`
+- Repo checkout: `/home/antoine/bird_stance_classification`
+- Bird training root: `/home/antoine/bird_stance_classification/data/birds_project`
+- Lines mirror root: `/home/antoine/bird_stance_classification/data/lines_project`
+- Served detector slot: `/home/antoine/bird_stance_classification/data/birds_project/models/detector/served/model_a/current/weights.pt`
+- Served attribute slot: `/home/antoine/bird_stance_classification/data/birds_project/models/attributes/served/model_b/current/checkpoint.pt`
 
-Notes:
-- On macOS Docker Desktop, `host.docker.internal` resolves to the host.
-- `auto` selects CUDA first, then MPS, then CPU.
+### TrueNAS
 
-## Toolchain Requirements
-- Docker + Docker Compose v2
-- Python 3.11 installed and discoverable
-- `uv` installed and available in PATH
+- Repo checkout: `/mnt/apps/code/bird_stance_classification`
+- Stable UI app id: `bird-stance-classification`
+- Canonical bird root: `/mnt/tank/media/birds_project`
+- Canonical lines root: `/mnt/tank/media/lines_project`
+- Lines import root: `/mnt/tank/media/lines_project/labelstudio/imports`
+- Lines compressed mirror root: `/mnt/tank/media/lines_project/labelstudio/images_compressed/lines_bw_stilts_q60`
 
-## Bootstrap
-```bash
-cd /Users/antoine/bird_leg
-cp .env.example .env
-make bootstrap
-```
+## Tracked Env Templates
+
+- `deploy/env/local.env.example`
+- `deploy/env/iats.env.example`
+- `deploy/env/truenas.env.example`
+
+The managed scripts expect untracked env files with the same names minus `.example`.
+
+## Data Ownership
+
+TrueNAS is authoritative for:
+
+- `birds_project/raw_images`
+- `birds_project/metadata`
+- `birds_project/labelstudio/exports`
+- `lines_project/labelstudio/imports`
+- `lines_project/labelstudio/images_compressed`
+
+`iats` owns:
+
+- normalized datasets and derived artifacts used for training
+- model training outputs
+- served model slots and release metadata
+
+## Active Artifact Layout
+
+Under `birds_project` on `iats`:
+
+- `models/detector/served/model_a/current`
+- `models/detector/served/model_a/releases/<timestamp>`
+- `models/attributes/convnextv2s_v001`
+- `models/attributes/cv_reports/attributes_cv_v002`
+- `models/attributes/served/model_b/current`
+- `models/attributes/served/model_b/releases/<timestamp>`
+
+Archived non-live model artifacts should go under:
+
+- `/home/antoine/bird_stance_classification/data/birds_project/models/archive/<date>/`
+
+On TrueNAS for `lines_project`:
+
+- canonical batch: `lines_bw_stilts_5k_seed_20260325_q60.*`
+- archived duplicate batch: `labelstudio/imports/archive/2026-03-26/lines_bw_stilts_5000_seed_20260325_q60.*`
+
+## Live ML Backend Expectations
+
+- Dockerized backend on `iats`
+- GPU-backed runtime
+- `MODEL_A_DEVICE=0`
+- `/health` reports:
+  - `status=UP`
+  - `model_a_loaded=true`
+  - `model_b_loaded=true`
+  - `model_b_schema_version=annotation_schema_v2`
+  - served weights/checkpoint paths under `/data/birds_project/models/...`
+
+## Live Label Studio Expectations
+
+- Public URL: [birds.ashs.live](https://birds.ashs.live)
+- Stable state lives on TrueNAS only
+- Project `4`: legacy bird annotation project
+- Project `7`: `Black Wing Stilts 1` lines batch
+- Project `7` ML backend URL: `http://192.168.0.42:9090`
 
 ## Verification Commands
-### Python / uv
+
 ```bash
-uv run python -V
+uv run pytest -q tests/smoke
+make smoke-remote
+ssh iats 'curl -sS http://127.0.0.1:9090/health'
+ssh truenas 'midclt call app.get_instance bird-stance-classification'
 ```
-Expected: `Python 3.11.x`
-
-### Compose syntax
-```bash
-docker compose --env-file /Users/antoine/bird_leg/.env -f /Users/antoine/bird_leg/deploy/docker-compose.yml config
-```
-Expected: valid rendered compose config
-
-### macOS MPS check
-```bash
-uv run python -c "import torch; print(torch.backends.mps.is_available())"
-```
-Expected on macOS M4: `True` when torch build exposes MPS
-
-### Backend device check
-```bash
-curl -sS http://127.0.0.1:9091/health
-```
-Expected: `"model_a_device"` reflects selected runtime (`mps`, `0`, or `cpu`)
-
-### Linux CUDA check
-```bash
-uv run python -c "import torch; print(torch.cuda.is_available())"
-```
-Expected on RTX 3090 host: `True` with CUDA-enabled torch runtime
-
-## Storage & Reproducibility Rules
-- Never mutate raw image files in `${BIRDS_DATA_ROOT}/raw_images`.
-- Never overwrite prior annotation exports/normalized outputs/dataset versions/model versions.
-- Rebuild inputs of record:
-  - `${BIRDS_DATA_ROOT}/raw_images`
-  - `${BIRDS_DATA_ROOT}/metadata/images.parquet`
-  - `${BIRDS_DATA_ROOT}/labelstudio/exports/ann_vXXX.json`
-  - code + config in this repository
-
-## Path Layout
-Expected top-level data layout under `${BIRDS_DATA_ROOT}`:
-- `raw_images/`
-- `metadata/`
-- `labelstudio/exports/`
-- `labelstudio/normalized/`
-- `derived/crops/`
-- `derived/datasets/`
-- `models/detector/`
-- `models/attributes/`
-- `models/image_status/`

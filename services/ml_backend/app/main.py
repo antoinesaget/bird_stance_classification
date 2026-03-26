@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import pathlib
@@ -18,7 +19,6 @@ from birdsys.logging import configure_logging
 
 from .predictors.model_a_yolo import YoloDetector
 from .predictors.model_b_attributes import AttributePredictor
-from .predictors.model_c_image_status import ImageStatusPredictor
 from .response_contract import format_predict_response
 from .serializers import to_label_studio_prediction
 
@@ -50,22 +50,13 @@ except Exception as exc:  # noqa: BLE001
     model_a = None
 
 model_b = AttributePredictor(checkpoint_path=env.model_b_checkpoint)
-model_c = ImageStatusPredictor(checkpoint_path=env.model_c_checkpoint)
 
 
 @app.get("/healthz")
 def healthz() -> dict[str, Any]:
     return {
         "status": "ok",
-        "model_a_loaded": model_a is not None,
-        "model_b_loaded": model_b.model is not None,
-        "model_c_loaded": model_c.model is not None,
-        "model_a_weights": str(env.model_a_weights),
-        "model_a_device": model_a.device if model_a is not None else None,
-        "model_a_imgsz": model_a.imgsz if model_a is not None else None,
-        "model_a_max_det": model_a.max_det if model_a is not None else None,
-        "model_b_checkpoint": str(env.model_b_checkpoint) if env.model_b_checkpoint else None,
-        "model_c_checkpoint": str(env.model_c_checkpoint) if env.model_c_checkpoint else None,
+        **_model_health_payload(),
     }
 
 
@@ -74,15 +65,7 @@ def health() -> dict[str, Any]:
     # Label Studio ML backend validation calls /health.
     return {
         "status": "UP",
-        "model_a_loaded": model_a is not None,
-        "model_b_loaded": model_b.model is not None,
-        "model_c_loaded": model_c.model is not None,
-        "model_a_weights": str(env.model_a_weights),
-        "model_a_device": model_a.device if model_a is not None else None,
-        "model_a_imgsz": model_a.imgsz if model_a is not None else None,
-        "model_a_max_det": model_a.max_det if model_a is not None else None,
-        "model_b_checkpoint": str(env.model_b_checkpoint) if env.model_b_checkpoint else None,
-        "model_c_checkpoint": str(env.model_c_checkpoint) if env.model_c_checkpoint else None,
+        **_model_health_payload(),
     }
 
 
@@ -92,10 +75,7 @@ def setup(payload: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "status": "UP",
         "model_version": MODEL_VERSION,
-        "model_a_loaded": model_a is not None,
-        "model_b_loaded": model_b.model is not None,
-        "model_c_loaded": model_c.model is not None,
-        "model_a_device": model_a.device if model_a is not None else None,
+        **_model_health_payload(),
     }
 
 
@@ -103,6 +83,47 @@ def setup(payload: dict[str, Any] | None = None) -> dict[str, Any]:
 def validate(payload: dict[str, Any]) -> dict[str, Any]:
     # Optional endpoint used by some ML backend flows.
     return {"valid": True}
+
+
+def _model_a_promotion_payload() -> dict[str, Any]:
+    metadata_path = env.model_a_weights.parent / "promotion.json"
+    if not metadata_path.exists():
+        return {
+            "model_a_release_id": None,
+            "model_a_source_path": None,
+            "model_a_source_sha256": None,
+        }
+
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):  # noqa: PERF203
+        logger.warning("Failed to parse promotion metadata at %s", metadata_path)
+        return {
+            "model_a_release_id": None,
+            "model_a_source_path": None,
+            "model_a_source_sha256": None,
+        }
+
+    return {
+        "model_a_release_id": payload.get("release_id"),
+        "model_a_source_path": payload.get("source_path"),
+        "model_a_source_sha256": payload.get("source_sha256"),
+    }
+
+
+def _model_health_payload() -> dict[str, Any]:
+    return {
+        "model_a_loaded": model_a is not None,
+        "model_b_loaded": model_b.model is not None,
+        "model_a_weights": str(env.model_a_weights),
+        "model_a_device": model_a.device if model_a is not None else None,
+        "model_a_imgsz": model_a.imgsz if model_a is not None else None,
+        "model_a_max_det": model_a.max_det if model_a is not None else None,
+        "model_b_checkpoint": str(env.model_b_checkpoint) if env.model_b_checkpoint else None,
+        "model_b_schema_version": model_b.schema_version,
+        "model_b_supported_labels": {head: sorted(labels) for head, labels in model_b.supported_labels.items()},
+        **_model_a_promotion_payload(),
+    }
 
 
 def _task_image_path(task: dict[str, Any]) -> pathlib.Path:
@@ -118,14 +139,24 @@ def _task_image_path(task: dict[str, Any]) -> pathlib.Path:
     def _resolve_local_files_query_path(value: str) -> pathlib.Path:
         # Label Studio local-files URLs commonly use query values like:
         # - birds_project/raw_images/...
+        # - lines_project/labelstudio/images_compressed/...
         # - raw_images/...
         # - /data/birds_project/raw_images/...
         decoded = urllib.parse.unquote(value).strip()
         if not decoded:
             raise ValueError("Label Studio local-files URL has empty d= query value")
 
+        data_root_parent = env.birds_data_root.parent
+
+        if decoded == "/data":
+            return _safe_path(str(data_root_parent))
+
         if decoded == "/data/birds_project":
             return _safe_path(str(env.birds_data_root))
+
+        if decoded.startswith("/data/"):
+            rel = decoded.removeprefix("/data/").lstrip("/")
+            return _safe_path(str(data_root_parent / rel))
 
         if decoded.startswith("/data/birds_project/"):
             rel = decoded.removeprefix("/data/birds_project/").lstrip("/")
@@ -138,11 +169,16 @@ def _task_image_path(task: dict[str, Any]) -> pathlib.Path:
             if decoded.startswith("data/birds_project/"):
                 rel = decoded.removeprefix("data/birds_project/").lstrip("/")
                 return _safe_path(str(env.birds_data_root / rel))
-            return _safe_path(f"/{decoded}")
+            rel = decoded.removeprefix("data/").lstrip("/")
+            return _safe_path(str(data_root_parent / rel))
 
         if decoded.startswith("birds_project/"):
             rel = decoded.removeprefix("birds_project/").lstrip("/")
             return _safe_path(str(env.birds_data_root / rel))
+
+        dataset, sep, remainder = decoded.partition("/")
+        if sep and dataset:
+            return _safe_path(str(data_root_parent / dataset / remainder))
 
         return _safe_path(str(env.birds_data_root / decoded))
 
@@ -192,33 +228,28 @@ def predict(payload: dict[str, Any]) -> dict[str, Any]:
 
             detections = model_a.predict(image_path)
             attrs = model_b.predict(detections, image_path=image_path)
-            image_status_label, image_status_conf = model_c.predict_label(detections, image_path=image_path)
             logger.info(
-                "predict task=%s image=%s detections=%d image_status=%s conf=%.3f",
+                "predict task=%s image=%s detections=%d",
                 task_id,
                 image_path.name,
                 len(detections),
-                image_status_label,
-                image_status_conf,
             )
             for idx, attr in enumerate(attrs):
                 logger.debug(
-                    "predict task=%s det_idx=%d readability=%s specie=%s behavior=%s substrate=%s legs=%s",
+                    "predict task=%s det_idx=%d readability=%s specie=%s behavior=%s substrate=%s stance=%s",
                     task_id,
                     idx,
                     attr.readability,
                     attr.specie,
                     attr.behavior,
                     attr.substrate,
-                    attr.legs,
+                    attr.stance,
                 )
 
             pred = to_label_studio_prediction(
                 task_id=task_id,
                 detections=detections,
                 attributes=attrs,
-                image_status=image_status_label,
-                image_status_conf=image_status_conf,
                 model_version=MODEL_VERSION,
             )
             predictions.append(pred)

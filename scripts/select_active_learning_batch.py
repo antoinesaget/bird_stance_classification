@@ -31,7 +31,7 @@ def row_scores(row: pd.Series) -> dict[str, float]:
         detections = []
 
     read_unc = 0.0
-    resting_low_legs = 0.0
+    resting_low_stance = 0.0
     disagreement = 0.0
 
     for det in detections:
@@ -40,26 +40,33 @@ def row_scores(row: pd.Series) -> dict[str, float]:
         behavior_probs = det.get("behavior_probs") or {}
         resting_p = float(behavior_probs.get("resting", 0.0)) + float(behavior_probs.get("backresting", 0.0))
         substrate_probs = det.get("substrate_probs") or {}
-        ground_water_p = float(substrate_probs.get("ground", 0.0)) + float(substrate_probs.get("water", 0.0))
-        legs_probs = det.get("legs_probs") or {}
-        legs_best = max(
-            float(legs_probs.get("one", 0.0)),
-            float(legs_probs.get("two", 0.0)),
-            float(legs_probs.get("unsure", 0.0)),
-            float(legs_probs.get("sitting", 0.0)),
+        ground_water_p = float(substrate_probs.get("bare_ground", 0.0)) + float(substrate_probs.get("water", 0.0))
+        stance_probs = det.get("stance_probs") or det.get("legs_probs") or {}
+        stance_best = max(
+            float(stance_probs.get("unipedal", stance_probs.get("one", 0.0))),
+            float(stance_probs.get("bipedal", stance_probs.get("two", 0.0))),
+            float(stance_probs.get("unsure", 0.0)),
+            float(stance_probs.get("sitting", 0.0)),
         )
 
         read_unc = max(read_unc, 1.0 - abs(read_p - 0.5) * 2.0)
-        resting_low_legs = max(resting_low_legs, read_p * resting_p * ground_water_p * (1.0 - legs_best))
+        resting_low_stance = max(resting_low_stance, read_p * resting_p * ground_water_p * (1.0 - stance_best))
         disagreement = max(
             disagreement,
-            abs(resting_p - max(float(legs_probs.get("one", 0.0)), float(legs_probs.get("two", 0.0)), float(legs_probs.get("sitting", 0.0)))),
+            abs(
+                resting_p
+                - max(
+                    float(stance_probs.get("unipedal", stance_probs.get("one", 0.0))),
+                    float(stance_probs.get("bipedal", stance_probs.get("two", 0.0))),
+                    float(stance_probs.get("sitting", 0.0)),
+                )
+            ),
         )
 
     diversity = diversity_score(str(row["image_id"]))
     return {
         "readability_uncertainty": read_unc,
-        "resting_low_legs_conf": resting_low_legs,
+        "resting_low_stance_conf": resting_low_stance,
         "disagreement": disagreement,
         "diversity": diversity,
     }
@@ -85,7 +92,7 @@ def main() -> int:
         parts = row_scores(row)
         total = (
             0.40 * parts["readability_uncertainty"]
-            + 0.35 * parts["resting_low_legs_conf"]
+            + 0.35 * parts["resting_low_stance_conf"]
             + 0.15 * parts["disagreement"]
             + 0.10 * parts["diversity"]
         )
@@ -132,7 +139,7 @@ def main() -> int:
         "random_count": random_count,
         "weights": {
             "readability_uncertainty": 0.40,
-            "resting_low_legs_conf": 0.35,
+            "resting_low_stance_conf": 0.35,
             "disagreement": 0.15,
             "diversity": 0.10,
         },

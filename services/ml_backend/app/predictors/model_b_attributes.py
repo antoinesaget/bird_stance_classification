@@ -17,9 +17,22 @@ LOGGER = logging.getLogger("birdsys.ml_backend.model_b")
 DEFAULT_LABELS = {
     "readability": ["readable", "occluded", "unreadable"],
     "specie": ["correct", "incorrect", "unsure"],
-    "behavior": ["resting", "foraging", "flying", "backresting", "preening", "display", "unsure"],
-    "substrate": ["ground", "water", "air", "unsure"],
-    "legs": ["one", "two", "unsure", "sitting"],
+    "behavior": [
+        "flying",
+        "moving",
+        "foraging",
+        "resting",
+        "backresting",
+        "bathing",
+        "calling",
+        "preening",
+        "display",
+        "breeding",
+        "other",
+        "unsure",
+    ],
+    "substrate": ["bare_ground", "vegetation", "water", "air", "unsure"],
+    "stance": ["unipedal", "bipedal", "sitting", "unsure"],
 }
 
 
@@ -33,16 +46,16 @@ class AttributePrediction:
     behavior_conf: float
     substrate: str
     substrate_conf: float
-    legs: str
-    legs_conf: float
+    stance: str
+    stance_conf: float
 
 
 class AttributePredictor:
     """
     Model B inference adapter.
 
-    For now this provides deterministic heuristic predictions so the backend can
-    prefill Label Studio fields even before a trained checkpoint is available.
+    The backend still offers heuristic prefill behavior when no checkpoint is
+    available, but those heuristics now speak the canonical schema-v2 labels.
     """
 
     def __init__(self, checkpoint_path: Path | None = None) -> None:
@@ -50,27 +63,37 @@ class AttributePredictor:
         self.device = self._pick_device()
         self.model: MultiHeadAttributeModel | None = None
         self.image_size = 224
-        self.id_to_label = DEFAULT_LABELS.copy()
+        self.schema_version = "annotation_schema_v2"
+        self.id_to_label = {head: labels[:] for head, labels in DEFAULT_LABELS.items()}
+        self.supported_labels = {head: set(labels) for head, labels in DEFAULT_LABELS.items()}
+        self.train_label_counts: dict[str, dict[str, int]] = {}
 
         if checkpoint_path and checkpoint_path.exists():
             try:
                 payload = torch.load(checkpoint_path, map_location="cpu")
                 backbone = str(payload.get("backbone") or "convnextv2_small")
                 self.image_size = int(payload.get("image_size") or 224)
+                self.schema_version = str(payload.get("schema_version") or self.schema_version)
 
                 label_maps = payload.get("label_maps") or {}
                 self.id_to_label = self._decode_label_maps(label_maps)
+                self.supported_labels = self._decode_supported_labels(payload.get("supported_labels") or {})
+                self.train_label_counts = {
+                    str(head): {str(label): int(count) for label, count in (counts or {}).items()}
+                    for head, counts in (payload.get("train_label_counts") or {}).items()
+                }
 
                 model = MultiHeadAttributeModel(backbone_name=backbone, pretrained=False)
                 model.load_state_dict(payload["model_state"], strict=True)
                 model.eval()
                 self.model = model.to(self.device)
                 LOGGER.info(
-                    "Loaded Model B checkpoint=%s backbone=%s device=%s image_size=%d",
+                    "Loaded Model B checkpoint=%s backbone=%s device=%s image_size=%d schema=%s",
                     checkpoint_path,
                     backbone,
                     self.device,
                     self.image_size,
+                    self.schema_version,
                 )
             except Exception as exc:  # noqa: BLE001
                 LOGGER.exception("Failed to load Model B checkpoint=%s: %s", checkpoint_path, exc)
@@ -106,11 +129,19 @@ class AttributePredictor:
 
     @classmethod
     def _decode_label_maps(cls, raw: dict) -> dict[str, list[str]]:
-        out = DEFAULT_LABELS.copy()
+        out = {head: labels[:] for head, labels in DEFAULT_LABELS.items()}
         for head, fallback in DEFAULT_LABELS.items():
             values = raw.get(head)
             if isinstance(values, dict):
                 out[head] = cls._invert_map(values, fallback)
+        return out
+
+    def _decode_supported_labels(self, raw: dict[str, list[str]]) -> dict[str, set[str]]:
+        out = {head: set(labels) for head, labels in self.id_to_label.items()}
+        for head in DEFAULT_LABELS:
+            values = raw.get(head)
+            if isinstance(values, list) and values:
+                out[head] = {str(item) for item in values}
         return out
 
     @staticmethod
@@ -127,12 +158,24 @@ class AttributePredictor:
         y2 = max(y1 + 1, min(height, y2))
         return image.crop((x1, y1, x2, y2))
 
+    def _fallback_label(self, head: str) -> str:
+        if "unsure" in self.id_to_label.get(head, []):
+            return "unsure"
+        return self.id_to_label[head][0]
+
+    def _coerce_supported_label(self, head: str, label: str, score: float) -> tuple[str, float]:
+        allowed = self.supported_labels.get(head) or set()
+        if not allowed or label in allowed:
+            return label, score
+        fallback = self._fallback_label(head)
+        return fallback, min(score, 0.50)
+
     def _decode_head(self, logits: torch.Tensor, head: str) -> tuple[str, float]:
         probs = torch.softmax(logits, dim=0)
         score, idx = torch.max(probs, dim=0)
         labels = self.id_to_label[head]
         label = labels[int(idx)] if int(idx) < len(labels) and labels[int(idx)] else DEFAULT_LABELS[head][0]
-        return label, float(score.item())
+        return self._coerce_supported_label(head, label, float(score.item()))
 
     def _heuristic(self, det: Detection) -> AttributePrediction:
         readability_score = min(0.99, max(0.05, 0.25 + 0.85 * det.score))
@@ -173,7 +216,7 @@ class AttributePredictor:
             substrate = "air"
             substrate_conf = 0.80
         elif det.y + det.h > 0.62:
-            substrate = "ground"
+            substrate = "bare_ground"
             substrate_conf = min(0.90, 0.58 + 0.28 * det.score)
         else:
             substrate = "water"
@@ -184,19 +227,23 @@ class AttributePredictor:
             behavior_conf = 0.50
             substrate = "unsure"
             substrate_conf = 0.50
-            legs = "unsure"
-            legs_conf = 0.5
-        elif behavior in {"resting", "backresting"} and substrate in {"ground", "water"}:
+            stance = "unsure"
+            stance_conf = 0.50
+        elif behavior in {"resting", "backresting"} and substrate in {"bare_ground", "water", "unsure"}:
             if det.score >= 0.70:
-                legs = "two"
+                stance = "bipedal"
             elif det.score >= 0.52:
-                legs = "one"
+                stance = "unipedal"
             else:
-                legs = "unsure"
-            legs_conf = min(0.90, 0.52 + 0.34 * det.score)
+                stance = "unsure"
+            stance_conf = min(0.90, 0.52 + 0.34 * det.score)
         else:
-            legs = "unsure"
-            legs_conf = 0.55
+            stance = "unsure"
+            stance_conf = 0.55
+
+        behavior, behavior_conf = self._coerce_supported_label("behavior", behavior, behavior_conf)
+        substrate, substrate_conf = self._coerce_supported_label("substrate", substrate, substrate_conf)
+        stance, stance_conf = self._coerce_supported_label("stance", stance, stance_conf)
 
         return AttributePrediction(
             readability=readability,
@@ -207,8 +254,8 @@ class AttributePredictor:
             behavior_conf=float(behavior_conf),
             substrate=substrate,
             substrate_conf=float(substrate_conf),
-            legs=legs,
-            legs_conf=float(legs_conf),
+            stance=stance,
+            stance_conf=float(stance_conf),
         )
 
     def _predict_checkpoint(
@@ -235,19 +282,18 @@ class AttributePredictor:
             specie, specie_conf = self._decode_head(logits["specie"][idx], "specie")
             behavior, behavior_conf = self._decode_head(logits["behavior"][idx], "behavior")
             substrate, substrate_conf = self._decode_head(logits["substrate"][idx], "substrate")
-            legs, legs_conf = self._decode_head(logits["legs"][idx], "legs")
+            stance, stance_conf = self._decode_head(logits["stance"][idx], "stance")
 
-            # Keep backend outputs consistent with strict annotation visibility logic.
             if readability == "unreadable" or specie == "incorrect":
-                behavior = "unsure"
+                behavior = self._fallback_label("behavior")
                 behavior_conf = min(behavior_conf, 0.50)
-                substrate = "unsure"
+                substrate = self._fallback_label("substrate")
                 substrate_conf = min(substrate_conf, 0.50)
-                legs = "unsure"
-                legs_conf = min(legs_conf, 0.50)
-            elif not (behavior in {"resting", "backresting"} and substrate in {"ground", "water"}):
-                legs = "unsure"
-                legs_conf = min(legs_conf, 0.55)
+                stance = self._fallback_label("stance")
+                stance_conf = min(stance_conf, 0.50)
+            elif not (behavior in {"resting", "backresting"} and substrate in {"bare_ground", "water", "unsure"}):
+                stance = self._fallback_label("stance")
+                stance_conf = min(stance_conf, 0.55)
 
             output.append(
                 AttributePrediction(
@@ -259,8 +305,8 @@ class AttributePredictor:
                     behavior_conf=behavior_conf,
                     substrate=substrate,
                     substrate_conf=substrate_conf,
-                    legs=legs,
-                    legs_conf=legs_conf,
+                    stance=stance,
+                    stance_conf=stance_conf,
                 )
             )
         return output
