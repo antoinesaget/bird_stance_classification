@@ -2,28 +2,41 @@
 
 ## Runtime Roles
 
-- Local: optional debug stack and orchestration
-- `iats`: dev, training, experiment tracking, and production ML serving
-- TrueNAS: stable Label Studio/Postgres/public UI and canonical storage
+- Local
+  - repo maintenance
+  - light smoke tests
+  - remote orchestration
+- `iats`
+  - primary engineering checkout
+  - training and experiment host
+  - live ML backend host
+- TrueNAS
+  - stable Label Studio/Postgres/public UI host
+  - canonical storage host for bird and lines datasets
 
 ## Canonical Paths
+
+### Local
+
+- Repo root: `/Users/antoine/truenas_migration/bird_stance_classification`
+- Archive root for local-only cleanup/WIP bundles: `/Users/antoine/truenas_migration/_archives/bird_stance_classification`
+
+### `iats`
+
+- Repo checkout: `/home/antoine/bird_stance_classification`
+- Bird training root: `/home/antoine/bird_stance_classification/data/birds_project`
+- Lines mirror root: `/home/antoine/bird_stance_classification/data/lines_project`
+- Served detector slot: `/home/antoine/bird_stance_classification/data/birds_project/models/detector/served/model_a/current/weights.pt`
+- Served attribute slot: `/home/antoine/bird_stance_classification/data/birds_project/models/attributes/served/model_b/current/checkpoint.pt`
 
 ### TrueNAS
 
 - Repo checkout: `/mnt/apps/code/bird_stance_classification`
 - Stable UI app id: `bird-stance-classification`
-- Canonical data root: `/mnt/tank/media/birds_project`
-
-### `iats`
-
-- Repo checkout: `/home/antoine/bird_stance_classification`
-- Training copy root: `/home/antoine/bird_stance_classification/data/birds_project`
-- Served detector slot: `/home/antoine/bird_stance_classification/data/birds_project/models/detector/served/model_a/current/weights.pt`
-
-### Local
-
-- Repo root: current workspace
-- Optional local data root: `.local/birds_project`
+- Canonical bird root: `/mnt/tank/media/birds_project`
+- Canonical lines root: `/mnt/tank/media/lines_project`
+- Lines import root: `/mnt/tank/media/lines_project/labelstudio/imports`
+- Lines compressed mirror root: `/mnt/tank/media/lines_project/labelstudio/images_compressed/lines_bw_stilts_q60`
 
 ## Tracked Env Templates
 
@@ -31,83 +44,69 @@
 - `deploy/env/iats.env.example`
 - `deploy/env/truenas.env.example`
 
-The managed scripts expect real untracked env files with the same names minus `.example`.
+The managed scripts expect untracked env files with the same names minus `.example`.
 
-## Canonical Data Ownership
+## Data Ownership
 
-TrueNAS is the source of truth for:
+TrueNAS is authoritative for:
 
-- `raw_images/`
-- `metadata/`
-- `labelstudio/exports/`
+- `birds_project/raw_images`
+- `birds_project/metadata`
+- `birds_project/labelstudio/exports`
+- `lines_project/labelstudio/imports`
+- `lines_project/labelstudio/images_compressed`
 
-`iats` keeps a synced working copy of those inputs for training. Derived artifacts and experiments remain local to `iats`.
+`iats` owns:
 
-## Artifact Layout
+- normalized datasets and derived artifacts used for training
+- model training outputs
+- served model slots and release metadata
 
-Under `${BIRDS_DATA_ROOT}`:
+## Active Artifact Layout
 
-- `raw_images/`
-- `metadata/`
-- `labelstudio/exports/`
-- `labelstudio/normalized/`
-- `derived/crops/`
-- `derived/datasets/`
-- `models/detector/`
-- `models/attributes/`
-- `models/image_status/`
+Under `birds_project` on `iats`:
 
-Detector serving layout on `iats`:
+- `models/detector/served/model_a/current`
+- `models/detector/served/model_a/releases/<timestamp>`
+- `models/attributes/convnextv2s_v001`
+- `models/attributes/cv_reports/attributes_cv_v002`
+- `models/attributes/served/model_b/current`
+- `models/attributes/served/model_b/releases/<timestamp>`
 
-- `models/detector/served/model_a/current/weights.pt`
-- `models/detector/served/model_a/current/promotion.json`
-- `models/detector/served/model_a/releases/<timestamp>/weights.pt`
-- `models/detector/served/model_a/releases/<timestamp>/promotion.json`
+Archived non-live model artifacts should go under:
 
-## ML Backend Expectations
+- `/home/antoine/bird_stance_classification/data/birds_project/models/archive/<date>/`
+
+On TrueNAS for `lines_project`:
+
+- canonical batch: `lines_bw_stilts_5k_seed_20260325_q60.*`
+- archived duplicate batch: `labelstudio/imports/archive/2026-03-26/lines_bw_stilts_5000_seed_20260325_q60.*`
+
+## Live ML Backend Expectations
 
 - Dockerized backend on `iats`
-- GPU-backed runtime (`gpus: all`)
+- GPU-backed runtime
 - `MODEL_A_DEVICE=0`
-- `/health` should report:
+- `/health` reports:
+  - `status=UP`
   - `model_a_loaded=true`
-  - a non-CPU `model_a_device`
-  - the served weights path
-  - promotion metadata when `promotion.json` exists
+  - `model_b_loaded=true`
+  - `model_b_schema_version=annotation_schema_v2`
+  - served weights/checkpoint paths under `/data/birds_project/models/...`
 
-## Label Studio Expectations
+## Live Label Studio Expectations
 
-- Public URL: `https://birds.ashs.live`
+- Public URL: [birds.ashs.live](https://birds.ashs.live)
 - Stable state lives on TrueNAS only
-- TrueNAS app mounts:
-  - canonical `birds_project`
-  - optional `lines_project`
-  - persistent Postgres data dir
-  - persistent Label Studio app data dir
-  - repo-tracked `deploy/overrides/localfiles_views.py`
+- Project `4`: legacy bird annotation project
+- Project `7`: `Black Wing Stilts 1` lines batch
+- Project `7` ML backend URL: `http://192.168.0.42:9090`
 
 ## Verification Commands
 
-Smoke tests:
-
 ```bash
 uv run pytest -q tests/smoke
-```
-
-Local compose render:
-
-```bash
-ENV_FILE=deploy/env/local.env.example scripts/ops/local_compose.sh config
-```
-
-`iats` backend health:
-
-```bash
+make smoke-remote
 ssh iats 'curl -sS http://127.0.0.1:9090/health'
-```
-
-TrueNAS app state:
-
-```bash
 ssh truenas 'midclt call app.get_instance bird-stance-classification'
 ```

@@ -1,214 +1,145 @@
 # Deployment Runbook
 
-This repository now uses three explicit deployment surfaces:
+This repo has three deployment surfaces:
 
 - `deploy/docker-compose.local.yml`
 - `deploy/docker-compose.iats-ml.yml`
 - `deploy/docker-compose.truenas.yml`
 
-## 1) Host Roles
+The live branch today is `codex/isbird-schema-v2`. Use that as `DEPLOY_BRANCH` until the current production state is merged elsewhere.
 
-### `iats`
+## Host Roles
 
-- Primary engineering checkout
-- Training and experiment host
-- Production ML backend host
-- Receives exports and training inputs from TrueNAS
+- `iats`
+  - repo checkout: `/home/antoine/bird_stance_classification`
+  - training and experiment host
+  - live ML backend host
+- TrueNAS
+  - repo checkout: `/mnt/apps/code/bird_stance_classification`
+  - live Label Studio/Postgres/public UI host
+  - canonical storage host for `birds_project` and `lines_project`
+- Local
+  - orchestration and smoke-test host
 
-### TrueNAS
+## Required Env Files
 
-- Stable Label Studio/Postgres/public UI host
-- Canonical `birds_project` storage host
-- Source of annotation exports
+- local: `deploy/env/local.env`
+- `iats`: `deploy/env/iats.env`
+- TrueNAS: `deploy/env/truenas.env`
 
-### Local
-
-- Optional local debug stack
-- Low-priority orchestration only
-
-## 2) Required Env Files
-
-Create these untracked files from the examples:
-
-```bash
-cp deploy/env/local.env.example deploy/env/local.env
-```
-
-On `iats`:
-
-```bash
-cp deploy/env/iats.env.example deploy/env/iats.env
-```
-
-On TrueNAS:
-
-```bash
-cp deploy/env/truenas.env.example deploy/env/truenas.env
-```
-
-Minimum important values:
+Critical values:
 
 - `deploy/env/iats.env`
-  - `BIRDS_DATA_ROOT`
+  - `BIRDS_DATA_ROOT=/home/antoine/bird_stance_classification/data/birds_project`
+  - `LINES_DATA_ROOT=/home/antoine/bird_stance_classification/data/lines_project`
+  - `MODEL_A_DEVICE=0`
   - `MODEL_A_BOOTSTRAP_WEIGHTS`
   - `MODEL_A_SERVING_WEIGHTS`
-  - `MODEL_A_DEVICE=0`
 - `deploy/env/truenas.env`
   - `TRUENAS_APP_ID=bird-stance-classification`
   - `BIRDS_DATA_ROOT=/mnt/tank/media/birds_project`
-  - `LABEL_STUDIO_HOST=https://birds.ashs.live`
+  - `LINES_DATA_ROOT=/mnt/tank/media/lines_project`
+  - `LABEL_STUDIO_URL=http://127.0.0.1:30280`
   - `LABEL_STUDIO_API_TOKEN`
-  - `LABEL_STUDIO_PGDATA_DIR`
-  - `LABEL_STUDIO_APP_DATA_DIR`
 
-## 3) Clean Pull / Bootstrap
-
-Both managed pull commands fail on dirty worktrees.
+## Clean Pull / Bootstrap
 
 ```bash
-make iats-pull
-make truenas-pull
+make iats-pull DEPLOY_BRANCH=codex/isbird-schema-v2
+make truenas-pull DEPLOY_BRANCH=codex/isbird-schema-v2
 ```
 
 Behavior:
 
-- If the remote checkout does not exist, it is cloned first.
-- The checkout is moved to `DEPLOY_BRANCH` (default `main`).
-- The pull is `--ff-only`.
+- clone if the remote checkout does not exist
+- checkout `DEPLOY_BRANCH`
+- pull `--ff-only`
+- fail if the remote worktree is dirty
 
-Fetch/clone uses the public HTTPS repo URL by default. This avoids the current GitHub SSH auth gap on `iats`.
-
-## 4) Stable Frontend Deploy On TrueNAS
-
-Pull the repo, then redeploy the existing custom app from the repo-owned compose file:
+## Deploy TrueNAS UI
 
 ```bash
-make truenas-pull
-make truenas-deploy-ui
+make truenas-deploy-ui DEPLOY_BRANCH=codex/isbird-schema-v2
 ```
 
-What the deploy does:
+This re-renders `deploy/docker-compose.truenas.yml` and updates the existing `bird-stance-classification` app while preserving persistent state mounts.
 
-- renders `deploy/docker-compose.truenas.yml`
-- updates or creates the `bird-stance-classification` custom app through `midclt app.update/app.create`
-- keeps Postgres and Label Studio state mounted from the existing TrueNAS config paths
-- mounts `deploy/overrides/localfiles_views.py` directly from the repo checkout instead of maintaining an ad hoc copy
+## Sync Data And Exports To `iats`
 
-## 5) Annotation Export Flow
-
-Export project annotations from the stable TrueNAS UI into the canonical dataset tree:
-
-```bash
-make truenas-export-annotations PROJECT_ID=4 ANNOTATION_VERSION=ann_v001
-```
-
-This writes:
-
-- `${BIRDS_DATA_ROOT}/labelstudio/exports/ann_v001.json`
-- `${BIRDS_DATA_ROOT}/labelstudio/exports/ann_v001-info.json`
-
-The export uses the Label Studio API token from `deploy/env/truenas.env`.
-
-## 6) Training Input Sync To `iats`
-
-Full canonical training-input sync:
+Canonical sync:
 
 ```bash
 make iats-sync-data
 ```
 
-This syncs only the canonical input subsets:
-
-- `raw_images/`
-- `metadata/`
-- `labelstudio/exports/`
-
-It intentionally does not overwrite `iats` model experiment outputs or derived training artifacts.
-
-Export-only sync for faster iteration:
+Export-only sync:
 
 ```bash
-make iats-import-exports PROJECT_ID=4 ANNOTATION_VERSION=ann_v001
+make iats-import-exports DEPLOY_BRANCH=codex/isbird-schema-v2 PROJECT_ID=4 EXPORT_NAME=ann_v002_legacy
 ```
 
-This can:
+The sync path is intentionally one-way for canonical inputs:
 
-- trigger the export on TrueNAS
-- copy the export JSON and metadata to `iats`
-- optionally run normalization on `iats`
+- TrueNAS owns `raw_images/`, `metadata/`, and `labelstudio/exports/`
+- `iats` owns derived datasets, training outputs, and served model slots
 
-## 7) Training And Promotion On `iats`
+## Train And Deploy Model B On `iats`
 
-Example attribute training:
+Cross-validation:
 
 ```bash
-make iats-train TRAIN_PIPELINE=attributes DATASET_VERSION=ds_v001
+make iats-train-attributes-cv DEPLOY_BRANCH=codex/isbird-schema-v2 DATASET_DIR=/home/antoine/bird_stance_classification/data/birds_project/derived/datasets/ds_v001
 ```
 
-Example image-status training:
+Final training:
 
 ```bash
-make iats-train TRAIN_PIPELINE=image-status ANNOTATION_VERSION=ann_v001
+make iats-train-attributes-final DEPLOY_BRANCH=codex/isbird-schema-v2 DATASET_DIR=/home/antoine/bird_stance_classification/data/birds_project/derived/datasets/ds_v001
 ```
 
-Custom training command:
+Promote and deploy the final checkpoint:
 
 ```bash
-make iats-train TRAIN_CMD='uv run python path/to/custom_train.py --arg value'
+make iats-deploy-model-b DEPLOY_BRANCH=codex/isbird-schema-v2 MODEL_B_SOURCE=/home/antoine/bird_stance_classification/data/birds_project/models/attributes/convnextv2s_v001/checkpoint.pt PROMOTION_LABEL=ann_v002_legacy
 ```
 
-Promote a detector artifact into the served slot:
+Deploy or re-deploy the ML backend container itself:
 
 ```bash
-make iats-promote-model PROMOTION_SOURCE=data/birds_project/models/detector/experiments/run_001/weights.pt
+make iats-deploy-ml DEPLOY_BRANCH=codex/isbird-schema-v2
 ```
 
-Promotion writes:
+## `lines_project` Batch Flow On TrueNAS
 
-- `.../served/model_a/releases/<timestamp>/weights.pt`
-- `.../served/model_a/releases/<timestamp>/promotion.json`
-- `.../served/model_a/current/weights.pt`
-- `.../served/model_a/current/promotion.json`
-
-The promotion target then recreates the ML container so the live backend reloads the newly promoted weights.
-
-## 8) ML Backend Deploy On `iats`
+Prepare the `q60` mirror and import bundle:
 
 ```bash
-make iats-deploy-ml
+make truenas-prepare-lines-batch DEPLOY_BRANCH=codex/isbird-schema-v2 LINES_PROJECT_ID=7 LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60
 ```
 
-What it does:
-
-- bootstraps the served weights slot from `MODEL_A_BOOTSTRAP_WEIGHTS` if needed
-- renders `deploy/docker-compose.iats-ml.yml`
-- deploys the GPU-backed ML container
-- validates `/health`
-- fails if `REQUIRE_NON_CPU_DEVICE=1` and the backend still reports `cpu`
-
-Optional cleanup of the legacy `iats` UI containers:
+Import the generated task bundle into project `7`:
 
 ```bash
-make iats-deploy-ml IATS_STOP_LEGACY_UI=1
+make truenas-import-lines-batch DEPLOY_BRANCH=codex/isbird-schema-v2 LINES_PROJECT_ID=7 LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60
 ```
 
-## 9) Verification
-
-Local smoke tests:
+Persist predictions so they do not have to be generated on the fly:
 
 ```bash
-uv run pytest -q tests/smoke
+make truenas-prefill-lines-predictions DEPLOY_BRANCH=codex/isbird-schema-v2 LINES_PROJECT_ID=7 LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60 LINES_ONLY_MISSING=1
 ```
 
-Cross-host smoke checks:
+## Verification
+
+Cross-host smoke:
 
 ```bash
 make smoke-remote
 ```
 
-Expected:
+Expected state:
 
-- TrueNAS app state is `RUNNING` or `ACTIVE`
-- `https://birds.ashs.live/user/login/` returns successfully
-- `iats` ML backend returns `status=UP`
-- TrueNAS can reach the `iats` ML backend over the LAN
+- TrueNAS app is healthy and [birds.ashs.live](https://birds.ashs.live/user/login/) loads
+- `iats` ML backend `/health` returns `status=UP`
+- project `7` can reach the ML backend over `http://192.168.0.42:9090`
+- served model paths on `iats` resolve under `/home/antoine/bird_stance_classification/data/birds_project/models`
