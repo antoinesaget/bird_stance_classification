@@ -26,6 +26,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--predict-batch-size", type=int, default=16, help="Tasks per /predict call")
     parser.add_argument("--import-batch-size", type=int, default=100, help="Predictions per Label Studio import call")
     parser.add_argument("--only-missing", action="store_true", help="Only process tasks with total_predictions == 0")
+    parser.add_argument(
+        "--store-empty",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Persist explicit empty predictions for tasks where the backend returns no regions",
+    )
     parser.add_argument("--limit", type=int, default=0, help="Optional cap on processed tasks for dry runs")
     parser.add_argument("--report-out", default="", help="Optional JSON report output path")
     return parser.parse_args()
@@ -120,13 +126,14 @@ def main() -> int:
     skipped_existing = 0
     failed_predictions = 0
     empty_predictions = 0
+    stored_empty_predictions = 0
     imported_batches = 0
     failures: list[dict[str, object]] = []
 
     pending_tasks: list[dict] = []
 
     def flush_pending() -> None:
-        nonlocal predicted_tasks, imported_predictions, failed_predictions, empty_predictions, imported_batches
+        nonlocal predicted_tasks, imported_predictions, failed_predictions, empty_predictions, stored_empty_predictions, imported_batches
         if not pending_tasks:
             return
         predictions = ml_predict(args.ml_backend_url, pending_tasks.copy())
@@ -141,13 +148,17 @@ def main() -> int:
                 failed_predictions += 1
                 failures.append({"task": task_id, "error": prediction.get("error")})
                 continue
-            if not result:
-                empty_predictions += 1
-                failures.append({"task": task_id, "error": "empty_result"})
-                continue
             if task_id not in task_by_id:
                 failed_predictions += 1
                 failures.append({"task": task_id, "error": "unexpected_task_id"})
+                continue
+            if not result:
+                empty_predictions += 1
+                if not args.store_empty:
+                    failures.append({"task": task_id, "error": "empty_result"})
+                    continue
+                stored_empty_predictions += 1
+                sanitized.append(sanitize_prediction(prediction))
                 continue
             sanitized.append(sanitize_prediction(prediction))
 
@@ -193,6 +204,7 @@ def main() -> int:
         "imported_batches": imported_batches,
         "failed_predictions": failed_predictions,
         "empty_predictions": empty_predictions,
+        "stored_empty_predictions": stored_empty_predictions,
         "failures": failures[:100],
     }
     write_report(args.report_out, report)

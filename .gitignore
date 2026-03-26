@@ -44,11 +44,14 @@ dist/
 # Large local datasets and experiment outputs
 /data/
 /scraped_images/
-/epxeriment_results/
+/experiment_results/
 output/
 notebooks/
 ML__*.csv
-full_migration_bundle/
+project-*.json
+ann_v*.json
+tasks.json
+model_compare_pairwise/
 
 # Model and heavy ML artifacts
 *.pt
