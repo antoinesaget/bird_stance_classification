@@ -42,12 +42,15 @@ def test_ops_shell_scripts_parse() -> None:
         REPO_ROOT / "scripts/ops/iats_train_remote.sh",
         REPO_ROOT / "scripts/ops/iats_normalize_annotations_remote.sh",
         REPO_ROOT / "scripts/ops/iats_build_attributes_dataset_remote.sh",
+        REPO_ROOT / "scripts/ops/iats_evaluate_model_b_remote.sh",
         REPO_ROOT / "scripts/ops/iats_train_attributes_cv_remote.sh",
         REPO_ROOT / "scripts/ops/iats_train_attributes_final_remote.sh",
         REPO_ROOT / "scripts/ops/iats_promote_model_remote.sh",
         REPO_ROOT / "scripts/ops/truenas_deploy_ui_remote.sh",
         REPO_ROOT / "scripts/ops/truenas_create_project_remote.sh",
         REPO_ROOT / "scripts/ops/truenas_export_annotations_remote.sh",
+        REPO_ROOT / "scripts/ops/truenas_prefill_lines_predictions_remote.sh",
+        REPO_ROOT / "scripts/ops/truenas_refresh_lines_predictions_remote.sh",
         REPO_ROOT / "scripts/ops/iats_sync_data.sh",
         REPO_ROOT / "scripts/ops/iats_import_exports.sh",
         REPO_ROOT / "scripts/ops/smoke_remote.sh",
@@ -59,10 +62,19 @@ def test_ops_shell_scripts_parse() -> None:
 
 def test_ops_python_scripts_compile() -> None:
     for path in (
+        REPO_ROOT / "scripts/create_autoresearch_sandbox.py",
         REPO_ROOT / "scripts/export_labelstudio_snapshot.py",
         REPO_ROOT / "scripts/create_labelstudio_project.py",
+        REPO_ROOT / "scripts/prefill_labelstudio_predictions.py",
         REPO_ROOT / "scripts/promote_model.py",
+        REPO_ROOT / "scripts/evaluate_model_b_checkpoint.py",
         REPO_ROOT / "scripts/train_attributes.py",
         REPO_ROOT / "scripts/train_attributes_cv.py",
     ):
         py_compile.compile(str(path), doraise=True)
+
+
+def test_makefile_has_core_remote_targets() -> None:
+    content = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    assert "iats-evaluate-model-b:" in content
+    assert "truenas-refresh-lines-predictions:" in content

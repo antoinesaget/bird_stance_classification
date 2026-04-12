@@ -3,17 +3,17 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 import sys
 
 sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.export_labelstudio_snapshot import request_json, resolve_api_token
+from scripts.export_labelstudio_snapshot import auth_header, request_json, resolve_api_token
 
 
 def parse_args() -> argparse.Namespace:
@@ -26,6 +26,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--predict-batch-size", type=int, default=16, help="Tasks per /predict call")
     parser.add_argument("--import-batch-size", type=int, default=100, help="Predictions per Label Studio import call")
     parser.add_argument("--only-missing", action="store_true", help="Only process tasks with total_predictions == 0")
+    parser.add_argument(
+        "--untouched-only",
+        action="store_true",
+        help="Only process tasks with no submitted annotations and no drafts",
+    )
+    parser.add_argument(
+        "--replace-existing",
+        action="store_true",
+        help="Replace existing prediction rows after new predictions are imported successfully",
+    )
     parser.add_argument(
         "--store-empty",
         action=argparse.BooleanOptionalAction,
@@ -66,6 +76,34 @@ def ls_request_json(
     return request_json(base_url, path, resolved_token, method=method, payload=payload)
 
 
+def ls_request(
+    base_url: str,
+    api_token: str,
+    path: str,
+    *,
+    method: str = "GET",
+    payload: dict | list | None = None,
+) -> tuple[int, dict | list | None]:
+    resolved_token = resolve_api_token(base_url, api_token)
+    body = None if payload is None else json.dumps(payload).encode("utf-8")
+    headers = {"Accept": "application/json"}
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+    if resolved_token:
+        headers["Authorization"] = auth_header(resolved_token)
+    request = urllib.request.Request(
+        urllib.parse.urljoin(base_url.rstrip("/") + "/", path.lstrip("/")),
+        data=body,
+        method=method,
+        headers=headers,
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        raw = response.read()
+        if not raw:
+            return response.status, None
+        return response.status, json.loads(raw)
+
+
 def sanitize_prediction(prediction: dict) -> dict:
     return {
         "task": prediction.get("task"),
@@ -83,6 +121,42 @@ def import_predictions(base_url: str, project_id: int, api_token: str, predictio
         method="POST",
         payload=predictions,
     )
+
+
+def task_is_untouched(task: dict[str, Any]) -> bool:
+    if int(task.get("total_annotations") or 0) > 0:
+        return False
+    if bool(task.get("is_labeled")):
+        return False
+    return not task_has_drafts(task)
+
+
+def task_has_drafts(task: dict[str, Any]) -> bool:
+    drafts = task.get("drafts") or []
+    return len(drafts) > 0
+
+
+def get_task_detail(base_url: str, api_token: str, task_id: int) -> dict[str, Any]:
+    payload = ls_request_json(base_url, api_token, f"/api/tasks/{task_id}")
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"Unexpected task detail payload for task {task_id}")
+    return payload
+
+
+def prediction_ids_from_task_detail(task_detail: dict[str, Any]) -> list[int]:
+    out: list[int] = []
+    for prediction in task_detail.get("predictions") or []:
+        prediction_id = prediction.get("id")
+        if prediction_id is None:
+            continue
+        out.append(int(prediction_id))
+    return out
+
+
+def delete_prediction(base_url: str, api_token: str, prediction_id: int) -> None:
+    status, _ = ls_request(base_url, api_token, f"/api/predictions/{prediction_id}", method="DELETE")
+    if status not in {200, 204}:
+        raise RuntimeError(f"Unexpected delete status for prediction {prediction_id}: {status}")
 
 
 def task_pages(base_url: str, project_id: int, api_token: str, page_size: int) -> list[dict]:
@@ -116,6 +190,18 @@ def chunked(items: list[dict], size: int) -> list[list[dict]]:
     return [items[idx : idx + size] for idx in range(0, len(items), size)]
 
 
+def refresh_task_prediction_ids(
+    *,
+    base_url: str,
+    api_token: str,
+    task_id: int,
+    old_prediction_ids: list[int],
+) -> list[int]:
+    detail = get_task_detail(base_url, api_token, task_id)
+    old_ids = set(old_prediction_ids)
+    return [prediction_id for prediction_id in prediction_ids_from_task_detail(detail) if prediction_id not in old_ids]
+
+
 def main() -> int:
     args = parse_args()
 
@@ -124,57 +210,157 @@ def main() -> int:
     predicted_tasks = 0
     imported_predictions = 0
     skipped_existing = 0
-    failed_predictions = 0
+    skipped_annotated = 0
+    skipped_drafts = 0
+    backend_failures = 0
+    import_failures = 0
+    delete_failures = 0
+    detail_failures = 0
     empty_predictions = 0
     stored_empty_predictions = 0
     imported_batches = 0
+    tasks_successfully_replaced = 0
+    old_prediction_rows_deleted = 0
+    tasks_left_on_old_predictions = 0
     failures: list[dict[str, object]] = []
 
     pending_tasks: list[dict] = []
 
     def flush_pending() -> None:
-        nonlocal predicted_tasks, imported_predictions, failed_predictions, empty_predictions, stored_empty_predictions, imported_batches
+        nonlocal predicted_tasks, imported_predictions, backend_failures, import_failures
+        nonlocal delete_failures, detail_failures, empty_predictions, stored_empty_predictions, imported_batches
+        nonlocal tasks_successfully_replaced, old_prediction_rows_deleted, tasks_left_on_old_predictions
         if not pending_tasks:
             return
-        predictions = ml_predict(args.ml_backend_url, pending_tasks.copy())
-        task_by_id = {task.get("id"): task for task in pending_tasks}
+        old_prediction_ids_by_task_id: dict[int, list[int]] = {}
+        batch_tasks = pending_tasks.copy()
         pending_tasks.clear()
 
-        sanitized: list[dict] = []
+        for task in batch_tasks:
+            task_id = int(task.get("id"))
+            if not args.replace_existing:
+                continue
+            try:
+                detail = get_task_detail(args.base_url, args.api_token, task_id)
+            except Exception as exc:  # noqa: BLE001
+                detail_failures += 1
+                tasks_left_on_old_predictions += 1
+                failures.append({"task": task_id, "error": f"detail_fetch_failed:{exc}"})
+                continue
+            old_prediction_ids_by_task_id[task_id] = prediction_ids_from_task_detail(detail)
+
+        prediction_inputs = [
+            task for task in batch_tasks if not args.replace_existing or int(task.get("id")) in old_prediction_ids_by_task_id
+        ]
+        if not prediction_inputs:
+            return
+
+        predictions = ml_predict(args.ml_backend_url, prediction_inputs)
+        predictions_by_task_id: dict[int, dict[str, Any]] = {}
         for prediction in predictions:
-            task_id = prediction.get("task")
+            task_id_raw = prediction.get("task")
+            if task_id_raw is None:
+                backend_failures += 1
+                failures.append({"task": None, "error": "missing_task_id"})
+                continue
+            task_id = int(task_id_raw)
+            if task_id in predictions_by_task_id:
+                backend_failures += 1
+                tasks_left_on_old_predictions += int(args.replace_existing)
+                failures.append({"task": task_id, "error": "duplicate_prediction"})
+                continue
+            predictions_by_task_id[task_id] = prediction
+
+        sanitized: list[dict] = []
+        sanitized_task_ids: list[int] = []
+        for task in prediction_inputs:
+            task_id = int(task.get("id"))
+            prediction = predictions_by_task_id.get(task_id)
+            if prediction is None:
+                backend_failures += 1
+                tasks_left_on_old_predictions += int(args.replace_existing)
+                failures.append({"task": task_id, "error": "missing_prediction"})
+                continue
             result = prediction.get("result") or []
             if prediction.get("error"):
-                failed_predictions += 1
+                backend_failures += 1
+                tasks_left_on_old_predictions += int(args.replace_existing)
                 failures.append({"task": task_id, "error": prediction.get("error")})
-                continue
-            if task_id not in task_by_id:
-                failed_predictions += 1
-                failures.append({"task": task_id, "error": "unexpected_task_id"})
                 continue
             if not result:
                 empty_predictions += 1
                 if not args.store_empty:
+                    backend_failures += 1
+                    tasks_left_on_old_predictions += int(args.replace_existing)
                     failures.append({"task": task_id, "error": "empty_result"})
                     continue
                 stored_empty_predictions += 1
                 sanitized.append(sanitize_prediction(prediction))
+                sanitized_task_ids.append(task_id)
                 continue
             sanitized.append(sanitize_prediction(prediction))
+            sanitized_task_ids.append(task_id)
 
         predicted_tasks += len(sanitized)
-        for batch in chunked(sanitized, args.import_batch_size):
+        for batch, batch_task_ids in zip(chunked(sanitized, args.import_batch_size), chunked(sanitized_task_ids, args.import_batch_size)):
             if not batch:
                 continue
-            response = import_predictions(args.base_url, args.project_id, args.api_token, batch)
-            if isinstance(response, dict):
-                imported_predictions += int(response.get("created") or len(batch))
-            else:
-                imported_predictions += len(batch)
+            try:
+                response = import_predictions(args.base_url, args.project_id, args.api_token, batch)
+            except Exception as exc:  # noqa: BLE001
+                import_failures += len(batch_task_ids)
+                tasks_left_on_old_predictions += len(batch_task_ids) if args.replace_existing else 0
+                for task_id in batch_task_ids:
+                    failures.append({"task": task_id, "error": f"import_failed:{exc}"})
+                continue
+            created_count = int(response.get("created") or len(batch)) if isinstance(response, dict) else len(batch)
+            imported_predictions += created_count
             imported_batches += 1
+            if not args.replace_existing:
+                continue
+            for task_id in batch_task_ids:
+                old_prediction_ids = old_prediction_ids_by_task_id.get(task_id, [])
+                try:
+                    new_prediction_ids = refresh_task_prediction_ids(
+                        base_url=args.base_url,
+                        api_token=args.api_token,
+                        task_id=task_id,
+                        old_prediction_ids=old_prediction_ids,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    detail_failures += 1
+                    tasks_left_on_old_predictions += 1
+                    failures.append({"task": task_id, "error": f"post_import_detail_failed:{exc}"})
+                    continue
+                if not new_prediction_ids:
+                    import_failures += 1
+                    tasks_left_on_old_predictions += 1
+                    failures.append({"task": task_id, "error": "import_not_observed"})
+                    continue
+                delete_failed = False
+                for prediction_id in old_prediction_ids:
+                    try:
+                        delete_prediction(args.base_url, args.api_token, prediction_id)
+                    except Exception as exc:  # noqa: BLE001
+                        delete_failures += 1
+                        delete_failed = True
+                        failures.append({"task": task_id, "prediction_id": prediction_id, "error": f"delete_failed:{exc}"})
+                    else:
+                        old_prediction_rows_deleted += 1
+                if delete_failed:
+                    tasks_left_on_old_predictions += 1
+                    continue
+                tasks_successfully_replaced += 1
 
     for task in task_pages(args.base_url, args.project_id, args.api_token, args.task_page_size):
         scanned_tasks += 1
+        if args.untouched_only:
+            if task_has_drafts(task):
+                skipped_drafts += 1
+                continue
+            if not task_is_untouched(task):
+                skipped_annotated += 1
+                continue
         if args.only_missing and int(task.get("total_predictions") or 0) > 0:
             skipped_existing += 1
             continue
@@ -195,16 +381,26 @@ def main() -> int:
         "predict_batch_size": args.predict_batch_size,
         "import_batch_size": args.import_batch_size,
         "only_missing": args.only_missing,
+        "untouched_only": args.untouched_only,
+        "replace_existing": args.replace_existing,
         "limit": args.limit,
         "scanned_tasks": scanned_tasks,
         "eligible_tasks": eligible_tasks,
+        "skipped_annotated": skipped_annotated,
+        "skipped_drafts": skipped_drafts,
         "skipped_existing": skipped_existing,
         "predicted_tasks": predicted_tasks,
         "imported_predictions": imported_predictions,
         "imported_batches": imported_batches,
-        "failed_predictions": failed_predictions,
+        "backend_failures": backend_failures,
+        "import_failures": import_failures,
+        "delete_failures": delete_failures,
+        "detail_failures": detail_failures,
         "empty_predictions": empty_predictions,
         "stored_empty_predictions": stored_empty_predictions,
+        "tasks_successfully_replaced": tasks_successfully_replaced,
+        "old_prediction_rows_deleted": old_prediction_rows_deleted,
+        "tasks_left_on_old_predictions": tasks_left_on_old_predictions,
         "failures": failures[:100],
     }
     write_report(args.report_out, report)

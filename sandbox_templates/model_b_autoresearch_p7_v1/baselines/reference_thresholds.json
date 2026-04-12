@@ -1,0 +1,35 @@
+{
+  "objective_weights": {
+    "stance_f1": 0.5,
+    "behavior_f1": 0.3,
+    "substrate_f1": 0.2
+  },
+  "guardrails": {
+    "readability_f1_min": 0.3,
+    "specie_f1_min": 0.3
+  },
+  "delta_to_keep": 0.02,
+  "delta_to_keep_policy": "Empirical 3-seed baseline std on current baseline recipe, rounded up to nearest 0.001.",
+  "baseline_seed_search_score_std": 0.019616862848070266,
+  "baseline_anchor": {
+    "run_id": "20260326_150758_sampler-cap-2p5-v1",
+    "search_score": 0.5183739491703461,
+    "score_floor": 0.5083739491703461
+  },
+  "dynamics_acceptance": {
+    "criterion": "selected_checkpoint_stability",
+    "transition_spike_ratio_max": 2.0,
+    "best_step_min_fraction": 0.20,
+    "final_val_loss_worse_pct_max": 0.10,
+    "final_val_search_score_retention_min": 0.95,
+    "minimum_passing_folds": 4
+  },
+  "heads": [
+    "readability",
+    "specie",
+    "behavior",
+    "substrate",
+    "stance"
+  ],
+  "baseline_report": "/home/antoine/bird_stance_classification/data/birds_project/models/attributes/experiments/project7_model_b_refresh_20260326/final_report/report.json"
+}

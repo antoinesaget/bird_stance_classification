@@ -24,8 +24,8 @@ CMD=(
   "$PYTHON_BIN" scripts/train_attributes.py
   --data-root "$BIRDS_DATA_ROOT"
   --dataset-dir "$DATASET_DIR"
-  --train-split train
-  --eval-split test
+  --train-split "${TRAIN_SPLIT:-train}"
+  --eval-split "${TRAIN_EVAL_SPLIT:-test}"
 )
 if [[ "${TRAIN_SMOKE:-0}" == "1" ]]; then
   CMD+=(--smoke)

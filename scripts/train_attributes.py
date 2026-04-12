@@ -149,7 +149,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data-root", default=os.getenv("BIRDS_DATA_ROOT", "/data/birds_project"))
     parser.add_argument("--output-dir", default="", help="Optional explicit output dir")
     parser.add_argument("--train-split", default="train", choices=["train", "val", "test"])
-    parser.add_argument("--eval-split", default="val", choices=["train", "val", "test"])
+    parser.add_argument("--eval-split", default="val", choices=["train", "val", "test", "none"])
     parser.add_argument("--schema-version", default="annotation_schema_v2")
     parser.add_argument("--smoke", action="store_true", help="Use tiny subset and 1 epoch")
     parser.add_argument("--no-pretrained", action="store_true", help="Disable pretrained backbone weights")
@@ -711,12 +711,14 @@ def main() -> int:
 
     dataset_dir = pathlib.Path(args.dataset_dir).expanduser().resolve()
     train_path = dataset_dir / f"{args.train_split}.parquet"
-    eval_path = dataset_dir / f"{args.eval_split}.parquet"
+    eval_path = dataset_dir / f"{args.eval_split}.parquet" if args.eval_split != "none" else None
     train_df = dataframe_from_split(train_path, args.smoke)
-    eval_df = dataframe_from_split(eval_path, args.smoke)
+    eval_df = dataframe_from_split(eval_path, args.smoke) if eval_path is not None else train_df.head(0).copy()
 
-    if train_df.empty or eval_df.empty:
-        raise RuntimeError("train/eval splits are empty after filtering missing crop files and non-bird rows")
+    if train_df.empty:
+        raise RuntimeError("train split is empty after filtering missing crop files and non-bird rows")
+    if args.eval_split != "none" and eval_df.empty:
+        raise RuntimeError("eval split is empty after filtering missing crop files and non-bird rows")
 
     data_root = pathlib.Path(args.data_root).expanduser().resolve()
     layout = ensure_layout(data_root)

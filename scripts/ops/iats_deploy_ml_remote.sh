@@ -14,8 +14,8 @@ require_clean_worktree
 
 BIRDS_DATA_ROOT="$(resolve_repo_path "$BIRDS_DATA_ROOT")"
 MODEL_A_SERVING_WEIGHTS="$(resolve_repo_path "$MODEL_A_SERVING_WEIGHTS")"
-MODEL_B_SERVING_CHECKPOINT="${MODEL_B_SERVING_CHECKPOINT:-data/birds_project/models/attributes/served/model_b/current/checkpoint.pt}"
-MODEL_B_SERVING_CHECKPOINT="$(resolve_repo_path "$MODEL_B_SERVING_CHECKPOINT")"
+MODEL_B_SERVING_ARTIFACT="${MODEL_B_SERVING_ARTIFACT:-${MODEL_B_SERVING_CHECKPOINT:-data/birds_project/models/attributes/served/model_b/current}}"
+MODEL_B_SERVING_ARTIFACT="$(resolve_repo_path "$MODEL_B_SERVING_ARTIFACT")"
 MODEL_A_BOOTSTRAP_WEIGHTS="${MODEL_A_BOOTSTRAP_WEIGHTS:-}"
 if [[ -n "$MODEL_A_BOOTSTRAP_WEIGHTS" ]]; then
   MODEL_A_BOOTSTRAP_WEIGHTS="$(resolve_repo_path "$MODEL_A_BOOTSTRAP_WEIGHTS")"
@@ -34,7 +34,15 @@ if [[ ! -f "$MODEL_A_SERVING_WEIGHTS" ]]; then
     --notes "Initial promotion created by iats_deploy_ml_remote.sh"
 fi
 
-export BIRDS_DATA_ROOT MODEL_A_SERVING_WEIGHTS MODEL_A_BOOTSTRAP_WEIGHTS MODEL_B_SERVING_CHECKPOINT
+if [[ "$MODEL_B_SERVING_ARTIFACT" == "$BIRDS_DATA_ROOT" ]]; then
+  MODEL_B_CHECKPOINT="/data/birds_project"
+elif [[ "$MODEL_B_SERVING_ARTIFACT" == "$BIRDS_DATA_ROOT/"* ]]; then
+  MODEL_B_CHECKPOINT="/data/birds_project/${MODEL_B_SERVING_ARTIFACT#"$BIRDS_DATA_ROOT"/}"
+else
+  die "MODEL_B_SERVING_ARTIFACT must live under BIRDS_DATA_ROOT: $MODEL_B_SERVING_ARTIFACT"
+fi
+
+export BIRDS_DATA_ROOT MODEL_A_SERVING_WEIGHTS MODEL_A_BOOTSTRAP_WEIGHTS MODEL_B_SERVING_ARTIFACT MODEL_B_CHECKPOINT
 
 docker compose --env-file "$ENV_FILE_PATH" -f "$COMPOSE_FILE_PATH" config >/dev/null
 docker compose --env-file "$ENV_FILE_PATH" -f "$COMPOSE_FILE_PATH" up -d --build
@@ -54,21 +62,22 @@ done
 
 [[ -n "$HEALTH_JSON" ]] || die "ML backend health endpoint did not become ready on port ${ML_BACKEND_PORT:-9090}"
 printf '%s\n' "$HEALTH_JSON"
-printf '%s\n' "$HEALTH_JSON" | REQUIRE_NON_CPU_DEVICE="${REQUIRE_NON_CPU_DEVICE:-1}" python3 -c '
+HEALTH_JSON="$HEALTH_JSON" REQUIRE_NON_CPU_DEVICE="${REQUIRE_NON_CPU_DEVICE:-1}" python3 - <<'PY'
 import json
 import os
-import sys
 
-payload = json.load(sys.stdin)
+payload = json.loads(os.environ["HEALTH_JSON"])
 if not payload.get("model_a_loaded"):
     raise SystemExit("Model A did not load")
 if os.environ.get("REQUIRE_NON_CPU_DEVICE", "1") not in {"0", "false", "False"}:
     if payload.get("model_a_device") in {None, "cpu"}:
-        raise SystemExit(f"Expected non-CPU device, got {payload.get('model_a_device')!r}")
+        raise SystemExit(f"Expected non-CPU device, got {payload.get(\"model_a_device\")!r}")
 model_b_checkpoint = os.environ.get("MODEL_B_SERVING_CHECKPOINT")
+if not model_b_checkpoint:
+    model_b_checkpoint = os.environ.get("MODEL_B_SERVING_ARTIFACT")
 if model_b_checkpoint and os.path.exists(model_b_checkpoint):
     if not payload.get("model_b_loaded"):
         raise SystemExit("Model B checkpoint exists but backend did not load it")
-'
+PY
 
 docker inspect birds-ml-backend --format '{{json .HostConfig.DeviceRequests}}'

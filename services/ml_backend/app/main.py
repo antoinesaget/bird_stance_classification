@@ -114,12 +114,15 @@ def _model_a_promotion_payload() -> dict[str, Any]:
 def _model_health_payload() -> dict[str, Any]:
     return {
         "model_a_loaded": model_a is not None,
-        "model_b_loaded": model_b.model is not None,
+        "model_b_loaded": model_b.artifact is not None,
         "model_a_weights": str(env.model_a_weights),
         "model_a_device": model_a.device if model_a is not None else None,
         "model_a_imgsz": model_a.imgsz if model_a is not None else None,
         "model_a_max_det": model_a.max_det if model_a is not None else None,
         "model_b_checkpoint": str(env.model_b_checkpoint) if env.model_b_checkpoint else None,
+        "model_b_artifact": str(model_b.checkpoint_path) if model_b.checkpoint_path else None,
+        "model_b_mode": model_b.mode,
+        "model_b_members": model_b.members,
         "model_b_schema_version": model_b.schema_version,
         "model_b_supported_labels": {head: sorted(labels) for head, labels in model_b.supported_labels.items()},
         **_model_a_promotion_payload(),

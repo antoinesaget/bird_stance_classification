@@ -85,10 +85,43 @@ def image_id_from_task(task: dict[str, Any]) -> str:
 
 
 def image_path_from_task(task: dict[str, Any], data_root: pathlib.Path) -> str | None:
+    lines_root = pathlib.Path(
+        os.getenv("LINES_DATA_ROOT", str(data_root.parent / "lines_project"))
+    ).expanduser()
+
+    def _remap_known_roots(resolved: str) -> str:
+        if not resolved:
+            return resolved
+        lines_prefixes = [
+            "/mnt/tank/media/lines_project/",
+            "/data/lines_project/",
+            "data/lines_project/",
+            "lines_project/",
+        ]
+        for prefix in lines_prefixes:
+            if resolved.startswith(prefix):
+                suffix = resolved.removeprefix(prefix).lstrip("/")
+                candidate = lines_root / suffix
+                return str(candidate.resolve()) if candidate.exists() else str(candidate)
+        return resolved
+
     def _resolve_local(decoded: str) -> str:
         decoded = decoded.strip()
         if not decoded:
             return ""
+        if decoded.startswith("/mnt/tank/media/lines_project/"):
+            suffix = decoded.removeprefix("/mnt/tank/media/lines_project/").lstrip("/")
+            return _remap_known_roots(f"/mnt/tank/media/lines_project/{suffix}")
+        if decoded.startswith("/data/lines_project/"):
+            suffix = decoded.removeprefix("/data/lines_project/").lstrip("/")
+            return _remap_known_roots(f"/data/lines_project/{suffix}")
+        if decoded.startswith("data/lines_project/"):
+            suffix = decoded.removeprefix("data/lines_project/").lstrip("/")
+            return _remap_known_roots(f"data/lines_project/{suffix}")
+        if decoded.startswith("lines_project/"):
+            suffix = decoded.removeprefix("lines_project/").lstrip("/")
+            candidate = lines_root / suffix
+            return str(candidate.resolve()) if candidate.exists() else str(candidate)
         if decoded.startswith("/data/birds_project/"):
             rel = decoded.removeprefix("/data/birds_project/").lstrip("/")
             return str((data_root / rel).resolve())
@@ -99,8 +132,8 @@ def image_path_from_task(task: dict[str, Any], data_root: pathlib.Path) -> str |
             rel = decoded.removeprefix("birds_project/").lstrip("/")
             return str((data_root / rel).resolve())
         if decoded.startswith("/"):
-            return decoded
-        return str((data_root / decoded).resolve())
+            return _remap_known_roots(decoded)
+        return _remap_known_roots(str((data_root / decoded).resolve()))
 
     data = task.get("data", {})
     candidates = [data.get("image"), data.get("filepath"), data.get("path"), task.get("image")]

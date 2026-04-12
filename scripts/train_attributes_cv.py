@@ -9,6 +9,7 @@ import os
 import pathlib
 from statistics import mean, pstdev
 from typing import Any
+from tempfile import TemporaryDirectory
 
 import numpy as np
 import pandas as pd
@@ -20,8 +21,12 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from birdsys.paths import ensure_layout, next_version_dir
-from train_attributes import (
+from birdsys.training.model_b_evaluation import (
     CONFUSION_HEADS,
+    evaluation_result_to_dict,
+    evaluate_checkpoint_on_frame,
+)
+from train_attributes import (
     HEADS,
     ID_TO_LABELS,
     TrainCfg,
@@ -29,6 +34,7 @@ from train_attributes import (
     dataframe_from_split,
     load_cfg,
     pick_device,
+    save_checkpoint,
     summarize_labels,
     train_model,
 )
@@ -46,6 +52,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-pretrained", action="store_true")
     parser.add_argument("--no-weighted-sampling", action="store_true")
     parser.add_argument("--progress-every-batches", type=int, default=20)
+    parser.add_argument(
+        "--old-model-checkpoint",
+        help="Path to the old-model checkpoint file or served artifact directory",
+        default=os.getenv(
+            "MODEL_B_CHECKPOINT",
+            "/home/antoine/bird_stance_classification/data/birds_project/models/attributes/served/model_b/current",
+        ),
+    )
     return parser.parse_args()
 
 
@@ -95,6 +109,13 @@ def main() -> int:
         head: np.zeros((len(ID_TO_LABELS[head]), len(ID_TO_LABELS[head])), dtype=np.int64)
         for head in CONFUSION_HEADS
     }
+    old_aggregate_confusions = {
+        head: np.zeros((len(ID_TO_LABELS[head]), len(ID_TO_LABELS[head])), dtype=np.int64)
+        for head in CONFUSION_HEADS
+    }
+    old_model_checkpoint = pathlib.Path(args.old_model_checkpoint).expanduser().resolve()
+    if not old_model_checkpoint.exists():
+        raise FileNotFoundError(old_model_checkpoint)
 
     for fold_idx in range(args.folds):
         fold_train = pool_df[pool_df["fold_id"] != fold_idx].drop(columns=["fold_id"]).reset_index(drop=True)
@@ -120,6 +141,31 @@ def main() -> int:
             progress_every_batches=args.progress_every_batches,
             weighted_sampling=not args.no_weighted_sampling,
         )
+        with TemporaryDirectory(prefix=f"model_b_cv_fold_{fold_idx + 1}_") as tmp_dir_name:
+            tmp_dir = pathlib.Path(tmp_dir_name)
+            temp_checkpoint = save_checkpoint(
+                out_dir=tmp_dir,
+                model=result.model,
+                cfg=effective,
+                pretrained=not args.no_pretrained,
+                schema_version=args.schema_version,
+                supported_labels=result.supported_labels,
+                train_visible_label_counts=result.train_visible_label_counts,
+            )
+            new_eval = evaluate_checkpoint_on_frame(
+                checkpoint_path=temp_checkpoint,
+                frame=fold_eval,
+                device=str(device),
+            )
+        old_eval = evaluate_checkpoint_on_frame(
+            checkpoint_path=old_model_checkpoint,
+            frame=fold_eval,
+            device=str(device),
+        )
+        delta_metrics = {
+            key: float(new_eval.metrics.get(key, 0.0)) - float(old_eval.metrics.get(key, 0.0))
+            for key in sorted(set(new_eval.metrics) | set(old_eval.metrics))
+        }
 
         row: dict[str, Any] = {
             "fold": fold_idx + 1,
@@ -127,23 +173,35 @@ def main() -> int:
             "eval_rows": len(fold_eval),
             "supported_labels": result.supported_labels,
             "eval_visible_label_counts": result.eval_visible_label_counts,
-            **result.final_metrics,
+            "fold_eval_label_counts": summarize_labels(fold_eval),
+            "new_model_fold_metrics": new_eval.metrics,
+            "old_model_fold_metrics": old_eval.metrics,
+            "delta_metrics": delta_metrics,
+            "new_model_diagnostics": evaluation_result_to_dict(new_eval)["diagnostics"],
+            "old_model_diagnostics": evaluation_result_to_dict(old_eval)["diagnostics"],
         }
         fold_rows.append(row)
-        for head, matrix in result.confusion_matrices.items():
+        for head, matrix in new_eval.confusion_matrices.items():
             aggregate_confusions[head] += matrix
+        for head, matrix in old_eval.confusion_matrices.items():
+            old_aggregate_confusions[head] += matrix
 
-    metrics_summary: dict[str, dict[str, float]] = {}
-    for head in HEADS:
-        for suffix in ("accuracy", "f1"):
-            key = f"{head}_{suffix}"
-            values = [float(row.get(key, 0.0)) for row in fold_rows]
-            metrics_summary[key] = {
-                "mean": float(mean(values)) if values else 0.0,
-                "std": float(pstdev(values)) if len(values) > 1 else 0.0,
-                "min": float(min(values)) if values else 0.0,
-                "max": float(max(values)) if values else 0.0,
-            }
+    metrics_summary: dict[str, dict[str, dict[str, float]]] = {"new_model": {}, "old_model": {}, "delta": {}}
+    for scope, key_name in (
+        ("new_model", "new_model_fold_metrics"),
+        ("old_model", "old_model_fold_metrics"),
+        ("delta", "delta_metrics"),
+    ):
+        for head in HEADS:
+            for suffix in ("accuracy", "f1"):
+                metric_key = f"{head}_{suffix}"
+                values = [float((row.get(key_name) or {}).get(metric_key, 0.0)) for row in fold_rows]
+                metrics_summary[scope][metric_key] = {
+                    "mean": float(mean(values)) if values else 0.0,
+                    "std": float(pstdev(values)) if len(values) > 1 else 0.0,
+                    "min": float(min(values)) if values else 0.0,
+                    "max": float(max(values)) if values else 0.0,
+                }
 
     full_visible_counts = collect_visible_label_counts(pool_df.drop(columns=["fold_id"]))
     unsupported_labels = {
@@ -158,6 +216,7 @@ def main() -> int:
         "device": str(device),
         "pretrained": not args.no_pretrained,
         "weighted_sampling": not args.no_weighted_sampling,
+        "old_model_checkpoint": str(old_model_checkpoint),
         "pool_rows": int(len(pool_df)),
         "pool_label_counts": summarize_labels(pool_df.drop(columns=["fold_id"])),
         "pool_visible_label_counts": full_visible_counts,
@@ -172,7 +231,11 @@ def main() -> int:
     pd.DataFrame(fold_rows).to_csv(fold_metrics_csv, index=False)
     for head, matrix in aggregate_confusions.items():
         pd.DataFrame(matrix, index=ID_TO_LABELS[head], columns=ID_TO_LABELS[head]).to_csv(
-            out_dir / f"cv_{head}_confusion_matrix.csv"
+            out_dir / f"cv_new_model_{head}_confusion_matrix.csv"
+        )
+    for head, matrix in old_aggregate_confusions.items():
+        pd.DataFrame(matrix, index=ID_TO_LABELS[head], columns=ID_TO_LABELS[head]).to_csv(
+            out_dir / f"cv_old_model_{head}_confusion_matrix.csv"
         )
 
     print(f"output_dir={out_dir}")

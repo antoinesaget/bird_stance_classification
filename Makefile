@@ -24,9 +24,10 @@ TRUENAS_REMOTE_REPO_URL ?= $(PUBLIC_REPO_URL)
 	local-config local-up local-down local-ps local-run-ml-host local-stop-ml-container \
 	compose-config compose-up compose-down compose-ps run-ml-backend run-ml-backend-host stop-ml-backend-container \
 	iats-pull iats-sync-data iats-import-exports iats-train iats-promote-model iats-deploy-ml \
-	iats-normalize-annotations iats-build-attributes-dataset iats-train-attributes-cv iats-train-attributes-final iats-deploy-model-b \
-	truenas-pull truenas-export-annotations truenas-deploy-ui truenas-create-project truenas-prepare-lines-batch truenas-import-lines-batch truenas-prefill-lines-predictions \
-	smoke-remote labelstudio-bootstrap-users
+	iats-normalize-annotations iats-build-attributes-dataset iats-evaluate-model-b \
+	iats-train-attributes-cv iats-train-attributes-final iats-deploy-model-b \
+	truenas-pull truenas-export-annotations truenas-deploy-ui truenas-create-project truenas-prepare-lines-batch truenas-import-lines-batch truenas-prefill-lines-predictions truenas-refresh-lines-predictions \
+	smoke-remote
 
 bootstrap:
 	$(UV) sync --python $(PYTHON_VERSION)
@@ -95,6 +96,12 @@ iats-build-attributes-dataset:
 	ANNOTATION_VERSION="$(ANNOTATION_VERSION)" DATASET_VERSION="$(DATASET_VERSION)" TRAIN_PCT="$(TRAIN_PCT)" VAL_PCT="$(VAL_PCT)" TEST_PCT="$(TEST_PCT)" \
 	"$(REPO_ROOT)/scripts/ops/remote_repo_exec.sh" "$(IATS_HOST)" "$(IATS_REPO_ROOT)" scripts/ops/iats_build_attributes_dataset_remote.sh
 
+iats-evaluate-model-b:
+	DEPLOY_BRANCH="$(DEPLOY_BRANCH)" REMOTE_REPO_URL="$(IATS_REMOTE_REPO_URL)" REMOTE_PUSH_URL="$(IATS_REMOTE_PUSH_URL)" \
+	DATASET_DIR="$(DATASET_DIR)" DATASET_VERSION="$(DATASET_VERSION)" MODEL_B_CHECKPOINT="$(MODEL_B_CHECKPOINT)" CHECKPOINT="$(CHECKPOINT)" \
+	SPLIT="$(SPLIT)" EVAL_OUTPUT_DIR="$(EVAL_OUTPUT_DIR)" EVAL_ARGS="$(EVAL_ARGS)" \
+	"$(REPO_ROOT)/scripts/ops/remote_repo_exec.sh" "$(IATS_HOST)" "$(IATS_REPO_ROOT)" scripts/ops/iats_evaluate_model_b_remote.sh
+
 iats-train:
 	DEPLOY_BRANCH="$(DEPLOY_BRANCH)" REMOTE_REPO_URL="$(IATS_REMOTE_REPO_URL)" REMOTE_PUSH_URL="$(IATS_REMOTE_PUSH_URL)" \
 	TRAIN_PIPELINE="$(TRAIN_PIPELINE)" DATASET_DIR="$(DATASET_DIR)" DATASET_VERSION="$(DATASET_VERSION)" \
@@ -113,12 +120,13 @@ iats-deploy-ml:
 
 iats-train-attributes-cv:
 	DEPLOY_BRANCH="$(DEPLOY_BRANCH)" REMOTE_REPO_URL="$(IATS_REMOTE_REPO_URL)" REMOTE_PUSH_URL="$(IATS_REMOTE_PUSH_URL)" \
-	DATASET_DIR="$(DATASET_DIR)" DATASET_VERSION="$(DATASET_VERSION)" TRAIN_SMOKE="$(TRAIN_SMOKE)" TRAIN_ARGS="$(TRAIN_ARGS)" \
+	DATASET_DIR="$(DATASET_DIR)" DATASET_VERSION="$(DATASET_VERSION)" MODEL_B_CHECKPOINT="$(MODEL_B_CHECKPOINT)" TRAIN_SMOKE="$(TRAIN_SMOKE)" TRAIN_ARGS="$(TRAIN_ARGS)" \
 	"$(REPO_ROOT)/scripts/ops/remote_repo_exec.sh" "$(IATS_HOST)" "$(IATS_REPO_ROOT)" scripts/ops/iats_train_attributes_cv_remote.sh
 
 iats-train-attributes-final:
 	DEPLOY_BRANCH="$(DEPLOY_BRANCH)" REMOTE_REPO_URL="$(IATS_REMOTE_REPO_URL)" REMOTE_PUSH_URL="$(IATS_REMOTE_PUSH_URL)" \
-	DATASET_DIR="$(DATASET_DIR)" DATASET_VERSION="$(DATASET_VERSION)" TRAIN_SMOKE="$(TRAIN_SMOKE)" TRAIN_ARGS="$(TRAIN_ARGS)" \
+	DATASET_DIR="$(DATASET_DIR)" DATASET_VERSION="$(DATASET_VERSION)" TRAIN_SPLIT="$(TRAIN_SPLIT)" TRAIN_EVAL_SPLIT="$(TRAIN_EVAL_SPLIT)" \
+	TRAIN_SMOKE="$(TRAIN_SMOKE)" TRAIN_ARGS="$(TRAIN_ARGS)" \
 	"$(REPO_ROOT)/scripts/ops/remote_repo_exec.sh" "$(IATS_HOST)" "$(IATS_REPO_ROOT)" scripts/ops/iats_train_attributes_final_remote.sh
 
 iats-deploy-model-b:
@@ -177,9 +185,18 @@ truenas-prefill-lines-predictions:
 	LINES_LIMIT="$(LINES_LIMIT)" LINES_PREDICTION_REPORT_OUT="$(LINES_PREDICTION_REPORT_OUT)" \
 	"$(REPO_ROOT)/scripts/ops/remote_repo_exec.sh" "$(TRUENAS_HOST)" "$(TRUENAS_REPO_ROOT)" scripts/ops/truenas_prefill_lines_predictions_remote.sh
 
+truenas-refresh-lines-predictions:
+	DEPLOY_BRANCH="$(DEPLOY_BRANCH)" REMOTE_REPO_URL="$(TRUENAS_REMOTE_REPO_URL)" \
+	LINES_DATA_ROOT="$(LINES_DATA_ROOT)" LINES_IMPORT_RELATIVE_ROOT="$(LINES_IMPORT_RELATIVE_ROOT)" \
+	LINES_SAMPLE_SIZE="$(LINES_SAMPLE_SIZE)" LINES_SAMPLE_SEED="$(LINES_SAMPLE_SEED)" \
+	LINES_JPEG_QUALITY="$(LINES_JPEG_QUALITY)" LINES_BATCH_NAME="$(LINES_BATCH_NAME)" \
+	LINES_PROJECT_ID="$(LINES_PROJECT_ID)" LINES_ML_BACKEND_URL="$(LINES_ML_BACKEND_URL)" \
+	LINES_TASK_PAGE_SIZE="$(LINES_TASK_PAGE_SIZE)" LINES_PREDICT_BATCH_SIZE="$(LINES_PREDICT_BATCH_SIZE)" \
+	LINES_PREDICTION_IMPORT_BATCH_SIZE="$(LINES_PREDICTION_IMPORT_BATCH_SIZE)" \
+	LINES_LIMIT="$(LINES_LIMIT)" LINES_UNTOUCHED_ONLY="$(LINES_UNTOUCHED_ONLY)" \
+	LINES_REPLACE_EXISTING="$(LINES_REPLACE_EXISTING)" LINES_PREDICTION_REPORT_OUT="$(LINES_PREDICTION_REPORT_OUT)" \
+	"$(REPO_ROOT)/scripts/ops/remote_repo_exec.sh" "$(TRUENAS_HOST)" "$(TRUENAS_REPO_ROOT)" scripts/ops/truenas_refresh_lines_predictions_remote.sh
+
 smoke-remote:
 	IATS_HOST="$(IATS_HOST)" TRUENAS_HOST="$(TRUENAS_HOST)" \
 	"$(REPO_ROOT)/scripts/ops/smoke_remote.sh"
-
-labelstudio-bootstrap-users:
-	./scripts/bootstrap_labelstudio_users.sh

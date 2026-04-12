@@ -52,6 +52,15 @@ project-*.json
 ann_v*.json
 tasks.json
 model_compare_pairwise/
+/artifacts/
+/archive/
+/final_selection/
+/final_selection_annotated/
+/runs/
+/standalone/
+/weights/
+/2026-04-08-autoresearch-birds/
+/.sandboxes/
 
 # Model and heavy ML artifacts
 *.pt

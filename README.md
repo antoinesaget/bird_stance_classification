@@ -23,6 +23,7 @@ The deployed branch is `main`. All three checkouts should stay on the same commi
 - Current live state snapshot: [`docs/current_state.md`](/Users/antoine/truenas_migration/bird_stance_classification/docs/current_state.md)
 - Command-oriented workflows: [`docs/ops_workflows.md`](/Users/antoine/truenas_migration/bird_stance_classification/docs/ops_workflows.md)
 - Current annotation schema comparison: [`docs/annotation_schema_current_vs_updates.md`](/Users/antoine/truenas_migration/bird_stance_classification/docs/annotation_schema_current_vs_updates.md)
+- Cleanup audit and reduction plan: [`docs/repo_audit_2026-04-10.md`](/Users/antoine/truenas_migration/bird_stance_classification/docs/repo_audit_2026-04-10.md)
 - Historical docs and superseded plans: [`docs/archive/README.md`](/Users/antoine/truenas_migration/bird_stance_classification/docs/archive/README.md)
 
 ## Common Commands
@@ -62,6 +63,12 @@ Prepare/import/prefill the `lines_project` batch:
 make truenas-prepare-lines-batch LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60
 make truenas-import-lines-batch LINES_PROJECT_ID=7 LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60
 make truenas-prefill-lines-predictions LINES_PROJECT_ID=7 LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60 LINES_ONLY_MISSING=1
+```
+
+Create a fresh nested-git autoresearch sandbox from the tracked template:
+
+```bash
+python3 scripts/create_autoresearch_sandbox.py --name model_b_autoresearch_p7_v2
 ```
 
 ## Notes
