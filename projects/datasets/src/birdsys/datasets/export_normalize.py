@@ -759,16 +759,16 @@ def import_pyplot():
     return plt
 
 
-def save_plot(fig, base_path: pathlib.Path) -> dict[str, str]:
+def save_plot(fig, base_path: pathlib.Path, *, tight_rect: tuple[float, float, float, float] | None = None) -> dict[str, str]:
     png_path = base_path.with_suffix(".png")
     svg_path = base_path.with_suffix(".svg")
-    fig.tight_layout()
+    fig.tight_layout(rect=tight_rect)
     fig.savefig(png_path, dpi=160, bbox_inches="tight")
     fig.savefig(svg_path, bbox_inches="tight")
     return {"png": png_path.name, "svg": svg_path.name}
 
 
-def annotate_bars(ax, bars, texts: list[str], *, padding: float = 3.0) -> None:
+def annotate_bars(ax, bars, texts: list[str], *, padding: float = 3.0, fontsize: int = 9) -> None:
     for bar, text in zip(bars, texts):
         height = bar.get_height()
         baseline = max(height, 0)
@@ -779,7 +779,7 @@ def annotate_bars(ax, bars, texts: list[str], *, padding: float = 3.0) -> None:
             textcoords="offset points",
             ha="center",
             va="bottom",
-            fontsize=9,
+            fontsize=fontsize,
             color="#222222",
         )
 
@@ -794,13 +794,21 @@ def format_count_and_pct(count: int, total: int) -> str:
     return f"{count:,}\n{(count / total) * 100:.1f}%"
 
 
+def add_bar_headroom(ax, values: list[int | float], *, extra_ratio: float = 0.18, min_top: float = 1.0) -> None:
+    if not values:
+        return
+    top = max(float(max(values)) * (1.0 + extra_ratio), min_top)
+    bottom, current_top = ax.get_ylim()
+    ax.set_ylim(bottom, max(top, current_top))
+
+
 def render_current_plots(*, plots_dir: pathlib.Path, current_payload: dict[str, Any]) -> dict[str, dict[str, str]]:
     plt = import_pyplot()
     plots_dir.mkdir(parents=True, exist_ok=True)
     out: dict[str, dict[str, str]] = {}
 
     counts = current_payload["counts"]
-    fig, ax = plt.subplots(figsize=(8, 4.5))
+    fig, ax = plt.subplots(figsize=(10, 5.4))
     keys = [
         "tasks_total_raw",
         "tasks_with_kept_annotation",
@@ -811,15 +819,16 @@ def render_current_plots(*, plots_dir: pathlib.Path, current_payload: dict[str, 
     ]
     values = [counts[key] for key in keys]
     bars = ax.bar(range(len(keys)), values, color="#2F6B8A")
+    add_bar_headroom(ax, values, extra_ratio=0.15)
     ax.set_xticks(range(len(keys)))
     ax.set_xticklabels(
         ["raw tasks", "annotated tasks", "images", "birds", "usable images", "non-usable images"],
-        rotation=20,
+        rotation=18,
         ha="right",
     )
     ax.set_ylabel("count")
     ax.set_title("Current Extract Summary")
-    annotate_bars(ax, bars, [format_count(value) for value in values])
+    annotate_bars(ax, bars, [format_count(value) for value in values], padding=4.0, fontsize=10)
     out["current_extract_summary"] = save_plot(fig, plots_dir / "current_extract_summary")
     plt.close(fig)
 
@@ -834,20 +843,27 @@ def render_current_plots(*, plots_dir: pathlib.Path, current_payload: dict[str, 
         ("stance_labeled", "stance labeled"),
     ]
     total_regions = max(stage_counts["all_regions"], 1)
-    fig, ax = plt.subplots(figsize=(10.5, 5.0))
+    fig, ax = plt.subplots(figsize=(11.5, 6.2))
     labels = [label for _, label in stage_order]
     values = [stage_counts[key] for key, _ in stage_order]
+    previous_values = [values[0], *values[:-1]]
     bars = ax.bar(range(len(labels)), values, color="#C66B3D")
+    add_bar_headroom(ax, values, extra_ratio=0.26)
     ax.set_xticks(range(len(labels)))
     ax.set_xticklabels(labels, rotation=20, ha="right")
     ax.set_ylabel("birds / regions")
     ax.set_title("Applicability Funnel")
-    annotate_bars(ax, bars, [format_count_and_pct(value, total_regions) for value in values], padding=4.0)
+    funnel_texts = []
+    for value, previous_value in zip(values, previous_values):
+        total_pct = (value / total_regions) * 100 if total_regions else 0.0
+        previous_pct = (value / previous_value) * 100 if previous_value else 0.0
+        funnel_texts.append(f"{value:,}\n{total_pct:.1f}% total\n{previous_pct:.1f}% prev")
+    annotate_bars(ax, bars, funnel_texts, padding=4.0, fontsize=9)
     out["current_null_counts"] = save_plot(fig, plots_dir / "current_null_counts")
     plt.close(fig)
 
     field_counts = current_payload["field_counts"]
-    fig, axes = plt.subplots(3, 2, figsize=(12, 11))
+    fig, axes = plt.subplots(3, 2, figsize=(13.5, 12.5))
     for ax, field in zip(axes.flat, LABEL_FIELDS):
         counts_map = {key: value for key, value in field_counts[field].items() if key != "<null>"}
         if not counts_map:
@@ -857,13 +873,18 @@ def render_current_plots(*, plots_dir: pathlib.Path, current_payload: dict[str, 
         labels = list(counts_map)
         values = [counts_map[label] for label in labels]
         bars = ax.bar(range(len(labels)), values, color="#478A6E")
+        add_bar_headroom(ax, values, extra_ratio=0.22)
         ax.set_xticks(range(len(labels)))
         ax.set_xticklabels(labels, rotation=35, ha="right")
         total = sum(values)
-        annotate_bars(ax, bars, [format_count_and_pct(value, total) for value in values], padding=3.0)
+        annotate_bars(ax, bars, [format_count_and_pct(value, total) for value in values], padding=3.0, fontsize=8)
         ax.set_title(f"{field} (n={total:,})")
-    fig.suptitle("Current Label Distributions", y=1.02)
-    out["current_label_distributions"] = save_plot(fig, plots_dir / "current_label_distributions")
+    fig.suptitle("Current Label Distributions", y=0.995)
+    out["current_label_distributions"] = save_plot(
+        fig,
+        plots_dir / "current_label_distributions",
+        tight_rect=(0.0, 0.0, 1.0, 0.965),
+    )
     plt.close(fig)
     return out
 
