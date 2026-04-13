@@ -5,13 +5,12 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
-import os
 import pathlib
 from collections import Counter
 from collections.abc import Sequence
 from typing import Any
 
-from birdsys.core import diff_numeric_dict, ensure_layout, find_previous_version_dir, next_version_dir
+from birdsys.core import default_data_home, default_species_slug, diff_numeric_dict, ensure_layout, find_previous_version_dir, next_version_dir
 from birdsys.datasets.dataset_common import (
     LABEL_FIELDS,
     absent_class_warnings,
@@ -30,7 +29,8 @@ from birdsys.datasets.dataset_common import (
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build stable grouped test/train-pool/fold split artifacts")
     parser.add_argument("--annotation-version", required=True, help="ann_vNNN")
-    parser.add_argument("--data-root", default=os.getenv("BIRDS_DATA_ROOT", "/data/birds_project"))
+    parser.add_argument("--data-home", default=str(default_data_home()))
+    parser.add_argument("--species-slug", default=default_species_slug())
     parser.add_argument("--split-version", default="", help="Optional explicit output folder name, e.g. split_v001")
     parser.add_argument("--test-pct", type=float, default=20.0, help="Approximate test target as a percent of bird rows")
     parser.add_argument("--folds", type=int, default=5)
@@ -71,16 +71,22 @@ def build_group_table(*, birds_df, images_df, annotation_version: str):
     rows: list[dict[str, Any]] = []
     for image_id, frame in birds_df.groupby("image_id", sort=True):
         image_meta = image_lookup.loc[image_id] if image_id in image_lookup.index else None
+        species_slug = None if image_meta is None else image_meta.get("species_slug")
         site_id = None if image_meta is None else image_meta.get("site_id")
-        filepath = None if image_meta is None else image_meta.get("filepath")
+        source_filename = None if image_meta is None else image_meta.get("source_filename")
+        original_relpath = None if image_meta is None else image_meta.get("original_relpath")
+        compressed_relpath = None if image_meta is None else image_meta.get("compressed_relpath")
         image_usable = None if image_meta is None else image_meta.get("image_usable")
         tokens = sorted(_presence_tokens(frame))
         rows.append(
             {
                 "annotation_version": annotation_version,
+                "species_slug": None if pd.isna(species_slug) else str(species_slug),
                 "image_id": str(image_id),
                 "site_id": None if pd.isna(site_id) else str(site_id),
-                "filepath": None if pd.isna(filepath) else str(filepath),
+                "source_filename": None if pd.isna(source_filename) else str(source_filename),
+                "original_relpath": None if pd.isna(original_relpath) else str(original_relpath),
+                "compressed_relpath": None if pd.isna(compressed_relpath) else str(compressed_relpath),
                 "image_usable": None if pd.isna(image_usable) else bool(image_usable),
                 "group_id": _group_id(None if pd.isna(site_id) else str(site_id), str(image_id)),
                 "bird_rows": int(len(frame)),
@@ -490,6 +496,7 @@ def write_split_report_md(
     lines = [
         f"# Split Report: {manifest['split_version']}",
         "",
+        f"- Species slug: `{manifest['species_slug']}`",
         f"- Source annotation version: `{manifest['source_annotation_version']}`",
         f"- Grouping key: `{manifest['split_policy']['grouping_key']}`",
         f"- Test target percent: `{manifest['split_policy']['test_pct_target']:.3f}%`",
@@ -520,8 +527,7 @@ def write_split_report_md(
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
-    data_root = pathlib.Path(args.data_root).expanduser().resolve()
-    layout = ensure_layout(data_root)
+    layout = ensure_layout(pathlib.Path(args.data_home), args.species_slug)
 
     birds_path = layout.labelstudio_normalized / args.annotation_version / "birds.parquet"
     images_path = layout.labelstudio_normalized / args.annotation_version / "images_labels.parquet"
@@ -603,6 +609,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     manifest = {
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "split_version": out_dir.name,
+        "species_slug": layout.species_slug,
         "source_annotation_version": args.annotation_version,
         "inputs": {
             "birds_parquet": str(birds_path),

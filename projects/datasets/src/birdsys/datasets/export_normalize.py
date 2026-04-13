@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
-import os
 import pathlib
 import urllib.parse
 from collections.abc import Sequence
@@ -13,8 +12,15 @@ from dataclasses import asdict, dataclass
 from typing import Any
 from xml.etree import ElementTree as ET
 
-from birdsys.core import ensure_layout, find_previous_version_dir
-from birdsys.core.attributes import normalize_choice
+from birdsys.core import (
+    default_data_home,
+    default_species_slug,
+    ensure_layout,
+    find_previous_version_dir,
+    normalize_choice,
+    normalize_relative_path,
+    normalize_species_slug,
+)
 
 
 CURRENT_SCHEMA_VERSION = "annotation_schema_v2"
@@ -72,6 +78,18 @@ class BirdRow:
 
 
 @dataclass(frozen=True)
+class TaskImageMetadata:
+    species_slug: str
+    image_id: str
+    source_filename: str
+    original_relpath: str
+    compressed_relpath: str
+    labelstudio_localfiles_relpath: str
+    compression_profile: str
+    site_id: str | None
+
+
+@dataclass(frozen=True)
 class NormalizationResult:
     annotation_version: str
     out_dir: pathlib.Path
@@ -88,7 +106,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Normalize a strict Label Studio export into deterministic parquet")
     parser.add_argument("--export-json", required=True, help="Path to the raw export JSON")
     parser.add_argument("--annotation-version", required=True, help="Annotation version, e.g. ann_v001")
-    parser.add_argument("--data-root", default=os.getenv("BIRDS_DATA_ROOT", "/data/birds_project"))
+    parser.add_argument("--data-home", default=str(default_data_home()))
+    parser.add_argument("--species-slug", default=default_species_slug())
     parser.add_argument("--label-config", default=str(DEFAULT_LABEL_CONFIG), help="Path to the current Label Studio label_config.xml")
     parser.add_argument("--raw-metadata-json", default="", help="Optional export metadata JSON to carry into the manifest")
     return parser.parse_args(argv)
@@ -157,79 +176,83 @@ def bird_row_id(task_id: str, region_id: str) -> str:
     return f"task:{task_id}:region:{region_id}"
 
 
-def image_id_from_task(task: dict[str, Any]) -> str:
-    data = task.get("data", {})
-    candidates = [data.get("image"), data.get("filepath"), data.get("path"), task.get("image")]
-    for candidate in candidates:
-        if not candidate:
-            continue
-        raw = str(candidate)
-        if "?d=" in raw:
-            parsed = urllib.parse.urlparse(raw)
-            query = urllib.parse.parse_qs(parsed.query)
-            local = query.get("d", [""])[0]
-            if local:
-                return pathlib.Path(local).stem
-        if raw.startswith("http://") or raw.startswith("https://"):
-            path = urllib.parse.urlparse(raw).path
-            if path:
-                return pathlib.Path(path).stem
-        return pathlib.Path(raw).stem
-    raise ValueError(f"Cannot infer image_id from task {task.get('id')!r}")
+def parse_localfiles_relpath(raw: str) -> str:
+    parsed = urllib.parse.urlparse(raw)
+    query = urllib.parse.parse_qs(parsed.query)
+    local = urllib.parse.unquote(query.get("d", [""])[0]).strip()
+    if not local:
+        raise ValueError("Label Studio local-files URL is missing the d= query value")
+    return normalize_relative_path(local, field_name="labelstudio local-files relpath")
 
 
-def image_path_from_task(task: dict[str, Any], data_root: pathlib.Path) -> str | None:
-    lines_root = pathlib.Path(os.getenv("LINES_DATA_ROOT", str(data_root.parent / "lines_project"))).expanduser()
+def image_metadata_from_task(task: dict[str, Any], *, species_slug: str) -> TaskImageMetadata:
+    task_id = task.get("id")
+    meta = task.get("meta") or {}
+    data = task.get("data") or {}
 
-    def remap_known_roots(resolved: str) -> str:
-        prefixes = [
-            "/mnt/tank/media/lines_project/",
-            "/data/lines_project/",
-            "data/lines_project/",
-            "lines_project/",
-        ]
-        for prefix in prefixes:
-            if resolved.startswith(prefix):
-                suffix = resolved.removeprefix(prefix).lstrip("/")
-                candidate = lines_root / suffix
-                return str(candidate.resolve()) if candidate.exists() else str(candidate)
-        return resolved
+    task_species_slug = normalize_choice(str(meta.get("species_slug") or ""))
+    if task_species_slug is None:
+        raise ValueError(f"Task {task_id}: missing required meta.species_slug")
+    if task_species_slug != normalize_species_slug(species_slug):
+        raise ValueError(
+            f"Task {task_id}: task species_slug {task_species_slug!r} does not match requested species {species_slug!r}"
+        )
 
-    def resolve_local(raw: str) -> str:
-        value = raw.strip()
-        if not value:
-            return ""
-        if value.startswith("/data/birds_project/"):
-            rel = value.removeprefix("/data/birds_project/").lstrip("/")
-            return str((data_root / rel).resolve())
-        if value.startswith("data/birds_project/"):
-            rel = value.removeprefix("data/birds_project/").lstrip("/")
-            return str((data_root / rel).resolve())
-        if value.startswith("birds_project/"):
-            rel = value.removeprefix("birds_project/").lstrip("/")
-            return str((data_root / rel).resolve())
-        if value.startswith("/"):
-            return remap_known_roots(value)
-        return remap_known_roots(str((data_root / value).resolve()))
+    raw_image_id = data.get("image_id")
+    image_id = normalize_choice(str(raw_image_id or ""))
+    if image_id is None:
+        raise ValueError(f"Task {task_id}: missing required data.image_id")
 
-    data = task.get("data", {})
-    candidates = [data.get("image"), data.get("filepath"), data.get("path"), task.get("image")]
-    for candidate in candidates:
-        if not candidate:
-            continue
-        raw = str(candidate)
-        if "?d=" in raw:
-            parsed = urllib.parse.urlparse(raw)
-            query = urllib.parse.parse_qs(parsed.query)
-            local = query.get("d", [""])[0]
-            if local:
-                resolved = resolve_local(urllib.parse.unquote(local))
-                if resolved:
-                    return resolved
-        if raw.startswith("http://") or raw.startswith("https://"):
-            continue
-        return resolve_local(raw)
-    return None
+    raw_source_filename = str(data.get("source_filename") or "").strip()
+    if not raw_source_filename:
+        raise ValueError(f"Task {task_id}: missing required data.source_filename")
+
+    raw_original_relpath = str(meta.get("original_relative_path") or "").strip()
+    if not raw_original_relpath:
+        raise ValueError(f"Task {task_id}: missing required meta.original_relative_path")
+    original_relpath = normalize_relative_path(raw_original_relpath, field_name="meta.original_relative_path")
+
+    raw_served_relpath = str(meta.get("served_relative_path") or "").strip()
+    if not raw_served_relpath:
+        raise ValueError(f"Task {task_id}: missing required meta.served_relative_path")
+    compressed_relpath = normalize_relative_path(raw_served_relpath, field_name="meta.served_relative_path")
+
+    compression_profile = str(meta.get("compression_profile") or "").strip()
+    if not compression_profile:
+        raise ValueError(f"Task {task_id}: missing required meta.compression_profile")
+
+    localfiles_image = str(data.get("image") or "").strip()
+    if not localfiles_image:
+        raise ValueError(f"Task {task_id}: missing required data.image")
+    labelstudio_localfiles_relpath = parse_localfiles_relpath(localfiles_image)
+    expected_localfiles_relpath = normalize_relative_path(
+        f"birds/{task_species_slug}/{compressed_relpath}",
+        field_name="expected labelstudio local-files relpath",
+    )
+    if labelstudio_localfiles_relpath != expected_localfiles_relpath:
+        raise ValueError(
+            f"Task {task_id}: local-files relpath {labelstudio_localfiles_relpath!r} does not match meta.served_relative_path {compressed_relpath!r}"
+        )
+
+    if pathlib.Path(raw_source_filename).name != pathlib.Path(original_relpath).name:
+        raise ValueError(
+            f"Task {task_id}: data.source_filename {raw_source_filename!r} does not match meta.original_relative_path {original_relpath!r}"
+        )
+    if pathlib.Path(image_id).name != pathlib.Path(original_relpath).stem:
+        raise ValueError(
+            f"Task {task_id}: data.image_id {image_id!r} does not match meta.original_relative_path {original_relpath!r}"
+        )
+
+    return TaskImageMetadata(
+        species_slug=task_species_slug,
+        image_id=image_id,
+        source_filename=raw_source_filename,
+        original_relpath=original_relpath,
+        compressed_relpath=compressed_relpath,
+        labelstudio_localfiles_relpath=labelstudio_localfiles_relpath,
+        compression_profile=compression_profile,
+        site_id=normalize_choice(data.get("site_id")),
+    )
 
 
 def bbox_from_region(region: dict[str, Any]) -> tuple[float, float, float, float]:
@@ -274,7 +297,7 @@ def extract_task_rows(
     *,
     task: dict[str, Any],
     annotation_version: str,
-    data_root: pathlib.Path,
+    species_slug: str,
     schema: CurrentAnnotationSchema,
 ) -> tuple[dict[str, Any] | None, list[BirdRow]]:
     task_id = normalize_choice(str(task.get("id")))
@@ -288,8 +311,7 @@ def extract_task_rows(
     if annotation_id is None:
         raise ValueError(f"Task {task_id}: latest annotation is missing an id")
 
-    image_id = image_id_from_task(task)
-    data = task.get("data") or {}
+    image_meta = image_metadata_from_task(task, species_slug=species_slug)
     results: list[dict[str, Any]] = annotation.get("result") or []
     region_state: dict[str, dict[str, Any]] = {}
 
@@ -416,7 +438,7 @@ def extract_task_rows(
                 task_id=task_id,
                 annotation_id=annotation_id,
                 region_id=region_id,
-                image_id=image_id,
+                image_id=image_meta.image_id,
                 bird_id=bird_row_id(task_id, region_id),
                 bbox_x=x,
                 bbox_y=y,
@@ -439,10 +461,15 @@ def extract_task_rows(
         "annotation_version": annotation_version,
         "task_id": task_id,
         "annotation_id": annotation_id,
-        "image_id": image_id,
+        "species_slug": image_meta.species_slug,
+        "image_id": image_meta.image_id,
+        "source_filename": image_meta.source_filename,
+        "original_relpath": image_meta.original_relpath,
+        "compressed_relpath": image_meta.compressed_relpath,
+        "labelstudio_localfiles_relpath": image_meta.labelstudio_localfiles_relpath,
+        "compression_profile": image_meta.compression_profile,
         "image_usable": bool(image_usable),
-        "filepath": image_path_from_task(task, data_root),
-        "site_id": normalize_choice(data.get("site_id")),
+        "site_id": image_meta.site_id,
     }
     return image_row, birds
 
@@ -490,9 +517,14 @@ def normalize_output_frames(image_rows: list[dict[str, Any]], bird_rows: list[Bi
             "annotation_version",
             "task_id",
             "annotation_id",
+            "species_slug",
             "image_id",
+            "source_filename",
+            "original_relpath",
+            "compressed_relpath",
+            "labelstudio_localfiles_relpath",
+            "compression_profile",
             "image_usable",
-            "filepath",
             "site_id",
         ],
     )
@@ -503,7 +535,11 @@ def normalize_output_frames(image_rows: list[dict[str, Any]], bird_rows: list[Bi
             raise ValueError(f"Duplicate image_id values in annotated tasks are not allowed: {duplicate_ids!r}")
         images_df["task_id"] = images_df["task_id"].astype(str)
         images_df["annotation_id"] = images_df["annotation_id"].astype(str)
+        images_df["species_slug"] = images_df["species_slug"].astype(str)
         images_df["image_id"] = images_df["image_id"].astype(str)
+        images_df["source_filename"] = images_df["source_filename"].astype(str)
+        for column in ("original_relpath", "compressed_relpath", "labelstudio_localfiles_relpath", "compression_profile"):
+            images_df[column] = images_df[column].astype(str)
         images_df = images_df.sort_values(["image_id", "task_id", "annotation_id"]).reset_index(drop=True)
 
     birds_df = pandas_frame(
@@ -658,7 +694,16 @@ def compare_frames(current_images, current_birds, previous_dir: pathlib.Path | N
     previous_images = pd.read_parquet(prev_images_path) if prev_images_path.exists() else pd.DataFrame(columns=current_images.columns)
     previous_birds = pd.read_parquet(prev_birds_path) if prev_birds_path.exists() else pd.DataFrame(columns=current_birds.columns)
 
-    image_compare_fields = ["image_usable", "filepath", "site_id"]
+    image_compare_fields = [
+        "species_slug",
+        "source_filename",
+        "original_relpath",
+        "compressed_relpath",
+        "labelstudio_localfiles_relpath",
+        "compression_profile",
+        "image_usable",
+        "site_id",
+    ]
     current_images_by_key = {str(row["image_id"]): row for _, row in current_images.iterrows()}
     previous_images_by_key = {str(row["image_id"]): row for _, row in previous_images.iterrows()}
     current_birds_by_key = {str(row["bird_id"]): row for _, row in current_birds.iterrows()}
@@ -1026,7 +1071,8 @@ def normalize_export(
     *,
     export_json: pathlib.Path,
     annotation_version: str,
-    data_root: pathlib.Path,
+    data_home: pathlib.Path,
+    species_slug: str,
     label_config: pathlib.Path = DEFAULT_LABEL_CONFIG,
     raw_metadata: dict[str, Any] | None = None,
 ) -> NormalizationResult:
@@ -1040,7 +1086,7 @@ def normalize_export(
     if not label_config.exists():
         raise FileNotFoundError(label_config)
 
-    layout = ensure_layout(data_root)
+    layout = ensure_layout(data_home, species_slug)
     out_dir = layout.labelstudio_normalized / annotation_version
     out_dir.mkdir(parents=True, exist_ok=False)
     payload = json.loads(export_json.read_text(encoding="utf-8"))
@@ -1068,7 +1114,7 @@ def normalize_export(
         image_row, birds = extract_task_rows(
             task=task,
             annotation_version=annotation_version,
-            data_root=data_root,
+            species_slug=species_slug,
             schema=schema,
         )
         if image_row is None:
@@ -1110,6 +1156,8 @@ def normalize_export(
         "schema_version": CURRENT_SCHEMA_VERSION,
         "normalization_policy_version": NORMALIZATION_POLICY_VERSION,
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "species_slug": layout.species_slug,
+        "species_root": str(layout.root),
         "source_export_json": str(export_json),
         "raw_export_metadata": raw_metadata,
         "previous_annotation_version": comparison_payload["previous_annotation_version"],
@@ -1166,7 +1214,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     result = normalize_export(
         export_json=pathlib.Path(args.export_json).expanduser().resolve(),
         annotation_version=args.annotation_version,
-        data_root=pathlib.Path(args.data_root).expanduser().resolve(),
+        data_home=pathlib.Path(args.data_home).expanduser().resolve(),
+        species_slug=args.species_slug,
         label_config=pathlib.Path(args.label_config).expanduser().resolve(),
         raw_metadata=load_raw_metadata(raw_metadata_path),
     )

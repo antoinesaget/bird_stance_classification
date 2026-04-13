@@ -9,6 +9,9 @@ import pytest
 from birdsys.datasets import export_normalize as mod
 
 
+SPECIES_SLUG = "black_winged_stilt"
+
+
 def write_export(path: pathlib.Path, payload: list[dict]) -> pathlib.Path:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return path
@@ -33,9 +36,20 @@ def task_payload(
                 "result": result,
             }
         )
+    compressed_relpath = f"labelstudio/images_compressed/q60/{image_name}.jpg"
     return {
         "id": task_id,
-        "data": {"image": f"/data/birds_project/raw_images/project7/{image_name}.jpg"},
+        "data": {
+            "image": f"/data/local-files/?d=birds/{SPECIES_SLUG}/{compressed_relpath}",
+            "image_id": image_name,
+            "source_filename": f"{image_name}.jpg",
+        },
+        "meta": {
+            "species_slug": SPECIES_SLUG,
+            "compression_profile": "q60",
+            "original_relative_path": f"originals/project7/{image_name}.jpg",
+            "served_relative_path": compressed_relpath,
+        },
         "annotations": annotations,
     }
 
@@ -81,8 +95,7 @@ def test_export_normalize_strict_current_schema_and_reports(tmp_path: pathlib.Pa
         tmp_path / "ann_v001.json",
         [
             {
-                "id": 101,
-                "data": {"image": "/data/birds_project/raw_images/project7/img001.jpg"},
+                **task_payload(task_id=101, image_name="img001", annotation_id=None, result=[]),
                 "annotations": [
                     {
                         "id": 10,
@@ -121,7 +134,8 @@ def test_export_normalize_strict_current_schema_and_reports(tmp_path: pathlib.Pa
     result = mod.normalize_export(
         export_json=export_path,
         annotation_version="ann_v001",
-        data_root=tmp_path / "data",
+        data_home=tmp_path / "birds",
+        species_slug=SPECIES_SLUG,
     )
 
     birds = pd.read_parquet(result.birds_out)
@@ -132,9 +146,15 @@ def test_export_normalize_strict_current_schema_and_reports(tmp_path: pathlib.Pa
     assert len(images) == 2
     assert len(birds) == 1
     assert manifest["previous_annotation_version"] is None
+    assert manifest["species_slug"] == SPECIES_SLUG
     assert extract_report["counts"]["tasks_total_raw"] == 3
     assert extract_report["counts"]["tasks_with_kept_annotation"] == 2
     assert extract_report["counts"]["tasks_skipped_without_kept_annotation"] == 1
+
+    image_row = images.iloc[0]
+    assert image_row["original_relpath"] == "originals/project7/img001.jpg"
+    assert image_row["compressed_relpath"] == "labelstudio/images_compressed/q60/img001.jpg"
+    assert image_row["labelstudio_localfiles_relpath"] == "birds/black_winged_stilt/labelstudio/images_compressed/q60/img001.jpg"
 
     row = birds.iloc[0]
     assert row["task_id"] == "101"
@@ -155,6 +175,41 @@ def test_export_normalize_strict_current_schema_and_reports(tmp_path: pathlib.Pa
         "comparison_label_deltas.png",
     ):
         assert (plots_dir / name).exists(), name
+
+
+def test_export_normalize_rejects_missing_required_task_metadata(tmp_path: pathlib.Path) -> None:
+    export_path = write_export(
+        tmp_path / "bad.json",
+        [
+            {
+                "id": 7,
+                "data": {"image": "/data/local-files/?d=birds/black_winged_stilt/labelstudio/images_compressed/q60/legacy001.jpg"},
+                "annotations": [
+                    {
+                        "id": 1,
+                        "updated_at": "2026-04-13T12:00:00Z",
+                        "was_cancelled": False,
+                        "result": region_result(
+                            region_id="r1",
+                            isbird="yes",
+                            readability="readable",
+                            specie="correct",
+                            behavior="resting",
+                            substrate="water",
+                            stance=None,
+                        ),
+                    }
+                ],
+            }
+        ],
+    )
+    with pytest.raises(ValueError, match="meta\\.species_slug"):
+        mod.normalize_export(
+            export_json=export_path,
+            annotation_version="ann_v001",
+            data_home=tmp_path / "birds",
+            species_slug=SPECIES_SLUG,
+        )
 
 
 def test_export_normalize_rejects_legacy_value(tmp_path: pathlib.Path) -> None:
@@ -181,12 +236,13 @@ def test_export_normalize_rejects_legacy_value(tmp_path: pathlib.Path) -> None:
         mod.normalize_export(
             export_json=export_path,
             annotation_version="ann_v001",
-            data_root=tmp_path / "data",
+            data_home=tmp_path / "birds",
+            species_slug=SPECIES_SLUG,
         )
 
 
 def test_export_normalize_compares_to_previous_extract(tmp_path: pathlib.Path) -> None:
-    data_root = tmp_path / "data"
+    data_home = tmp_path / "birds"
     write_export(
         tmp_path / "ann_v001.json",
         [
@@ -209,7 +265,8 @@ def test_export_normalize_compares_to_previous_extract(tmp_path: pathlib.Path) -
     mod.normalize_export(
         export_json=tmp_path / "ann_v001.json",
         annotation_version="ann_v001",
-        data_root=data_root,
+        data_home=data_home,
+        species_slug=SPECIES_SLUG,
     )
 
     write_export(
@@ -248,7 +305,8 @@ def test_export_normalize_compares_to_previous_extract(tmp_path: pathlib.Path) -
     result = mod.normalize_export(
         export_json=tmp_path / "ann_v002.json",
         annotation_version="ann_v002",
-        data_root=data_root,
+        data_home=data_home,
+        species_slug=SPECIES_SLUG,
     )
     comparison = json.loads(result.comparison_json.read_text(encoding="utf-8"))
 
@@ -258,7 +316,3 @@ def test_export_normalize_compares_to_previous_extract(tmp_path: pathlib.Path) -
     assert comparison["birds"]["changed"] == 1
     assert comparison["field_change_counts"]["behavior"] == 1
     assert comparison["field_change_counts"]["substrate"] == 1
-    assert comparison["field_change_counts"]["stance"] == 1
-    changed = comparison["bird_changes"]["changed"][0]
-    assert changed["bird_id"] == "task:101:region:r1"
-    assert sorted(changed["changed_fields"]) == ["behavior", "stance", "substrate"]

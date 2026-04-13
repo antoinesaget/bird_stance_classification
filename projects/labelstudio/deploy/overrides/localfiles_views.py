@@ -69,7 +69,7 @@ def _user_has_localfiles_access(request: HttpRequest, full_path: Path, local_ser
         return False
 
     # Fallback for restored environments where local-files storage rows are absent.
-    default_allowed_root = os.path.join(local_serving_document_root, 'birds_project')
+    default_allowed_root = os.path.join(local_serving_document_root, 'birds')
     return _is_same_or_subpath(full_path_str, default_allowed_root)
 
 

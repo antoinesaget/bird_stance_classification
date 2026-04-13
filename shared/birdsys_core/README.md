@@ -8,7 +8,7 @@ Internal shared package for the remaining BirdSys subprojects. Its job is to hol
 - `src/birdsys/core/contracts.py`: small shared payload types still used by active subprojects
 - `src/birdsys/core/models.py`: shared neural network definitions for the image status model and the multi-head attribute model
 - `src/birdsys/core/model_b_artifacts.py`: Model B artifact loading, label decoding, and prediction guard logic
-- `src/birdsys/core/paths.py`: canonical data-root layout and version-directory helpers
+- `src/birdsys/core/paths.py`: canonical species-root layout and version-directory helpers
 - `src/birdsys/core/reporting.py`: previous-version lookup and numeric diff helpers
 - `src/birdsys/core/__init__.py`: minimal export surface for the active extraction and dataset flow
 

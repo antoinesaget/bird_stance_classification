@@ -143,7 +143,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train Model B multi-head bird attribute classifier")
     parser.add_argument("--dataset-dir", required=True, help="Path to ds_vXXX with train_pool/test/all_data parquet files")
     parser.add_argument("--config", default=str(PROJECT_ROOT / "config" / "train_attributes.yaml"))
-    parser.add_argument("--data-root", default=os.getenv("BIRDS_DATA_ROOT", "/data/birds_project"))
+    parser.add_argument("--data-home", default=os.getenv("BIRD_DATA_HOME", "/data/birds"))
+    parser.add_argument("--species-slug", default=os.getenv("BIRD_SPECIES_SLUG", "black_winged_stilt"))
     parser.add_argument("--output-dir", default="", help="Optional explicit output dir")
     parser.add_argument("--train-split", default="train_pool", choices=["train_pool", "test", "all_data"])
     parser.add_argument("--eval-split", default="none", choices=["train_pool", "test", "all_data", "none"])
@@ -717,8 +718,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.eval_split != "none" and eval_df.empty:
         raise RuntimeError("eval split is empty after filtering missing crop files and non-bird rows")
 
-    data_root = pathlib.Path(args.data_root).expanduser().resolve()
-    layout = ensure_layout(data_root)
+    data_home = pathlib.Path(args.data_home).expanduser().resolve()
+    layout = ensure_layout(data_home, args.species_slug)
     if args.output_dir:
         out_dir = pathlib.Path(args.output_dir).expanduser().resolve()
         out_dir.mkdir(parents=True, exist_ok=False)

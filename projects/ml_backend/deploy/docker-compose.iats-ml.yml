@@ -8,17 +8,17 @@ services:
     restart: unless-stopped
     gpus: all
     environment:
-      BIRDS_DATA_ROOT: /data/birds_project
-      MODEL_A_WEIGHTS: /data/birds_project/models/detector/served/model_a/current/weights.pt
+      BIRD_DATA_HOME: /data/birds
+      BIRD_SPECIES_SLUG: ${BIRD_SPECIES_SLUG:-black_winged_stilt}
+      MODEL_A_WEIGHTS: /data/birds/black_winged_stilt/models/detector/served/model_a/current/weights.pt
       MODEL_A_DEVICE: ${MODEL_A_DEVICE:-0}
       MODEL_A_IMGSZ: ${MODEL_A_IMGSZ:-1280}
       MODEL_A_MAX_DET: ${MODEL_A_MAX_DET:-300}
       MODEL_A_CONF: ${MODEL_A_CONF:-0.25}
       MODEL_A_IOU: ${MODEL_A_IOU:-0.45}
-      MODEL_B_CHECKPOINT: ${MODEL_B_CHECKPOINT:-/data/birds_project/models/attributes/served/model_b/current}
+      MODEL_B_CHECKPOINT: ${MODEL_B_CHECKPOINT:-/data/birds/black_winged_stilt/models/attributes/served/model_b/current}
       BIRDS_LOG_LEVEL: ${BIRDS_LOG_LEVEL:-INFO}
     ports:
       - "${ML_BACKEND_BIND_HOST:-0.0.0.0}:${ML_BACKEND_PORT:-9090}:9090"
     volumes:
-      - ${BIRDS_DATA_ROOT}:/data/birds_project:ro
-      - ${LINES_DATA_ROOT:-data/lines_project}:/data/lines_project:ro
+      - ${BIRD_DATA_HOME}:/data/birds:ro

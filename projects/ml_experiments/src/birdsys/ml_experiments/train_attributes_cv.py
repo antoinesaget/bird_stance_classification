@@ -42,7 +42,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run grouped 5-fold CV for Model B attributes on the train pool")
     parser.add_argument("--dataset-dir", required=True, help="Path to dataset dir with train_pool/test/all_data parquet files")
     parser.add_argument("--config", default=str(PROJECT_ROOT / "config" / "train_attributes.yaml"))
-    parser.add_argument("--data-root", default=os.getenv("BIRDS_DATA_ROOT", "/data/birds_project"))
+    parser.add_argument("--data-home", default=os.getenv("BIRD_DATA_HOME", "/data/birds"))
+    parser.add_argument("--species-slug", default=os.getenv("BIRD_SPECIES_SLUG", "black_winged_stilt"))
     parser.add_argument("--output-dir", default="")
     parser.add_argument("--schema-version", default="annotation_schema_v2")
     parser.add_argument("--smoke", action="store_true")
@@ -54,7 +55,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Path to the old-model checkpoint file or served artifact directory",
         default=os.getenv(
             "MODEL_B_CHECKPOINT",
-            "/home/antoine/bird_stance_classification/data/birds_project/models/attributes/served/model_b/current",
+            "/data/birds/black_winged_stilt/models/attributes/served/model_b/current",
         ),
     )
     return parser.parse_args(argv)
@@ -102,8 +103,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             device=cfg.device,
         )
 
-    data_root = pathlib.Path(args.data_root).expanduser().resolve()
-    layout = ensure_layout(data_root)
+    data_home = pathlib.Path(args.data_home).expanduser().resolve()
+    layout = ensure_layout(data_home, args.species_slug)
     if args.output_dir:
         out_dir = pathlib.Path(args.output_dir).expanduser().resolve()
         out_dir.mkdir(parents=True, exist_ok=False)

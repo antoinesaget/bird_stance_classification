@@ -1,15 +1,24 @@
-"""Purpose: Define the canonical repository and data-root layout helpers."""
+"""Purpose: Define the canonical species-aware data layout helpers."""
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
 
+DEFAULT_DATA_HOME = Path("/data/birds")
+DEFAULT_SPECIES_SLUG = "black_winged_stilt"
+
+
 @dataclass(frozen=True)
 class ProjectLayout:
+    data_home: Path
+    species_slug: str
     root: Path
-    raw_images: Path
+    originals: Path
     metadata: Path
+    labelstudio_imports: Path
+    labelstudio_images_compressed: Path
     labelstudio_exports: Path
     labelstudio_normalized: Path
     derived_splits: Path
@@ -20,12 +29,57 @@ class ProjectLayout:
     models_image_status: Path
 
 
-def build_layout(data_root: Path) -> ProjectLayout:
-    root = data_root.resolve()
+def default_data_home() -> Path:
+    return Path(os.getenv("BIRD_DATA_HOME", str(DEFAULT_DATA_HOME))).expanduser()
+
+
+def default_species_slug() -> str:
+    raw = os.getenv("BIRD_SPECIES_SLUG", DEFAULT_SPECIES_SLUG).strip()
+    if not raw:
+        raise ValueError("BIRD_SPECIES_SLUG cannot be empty")
+    return raw
+
+
+def normalize_species_slug(species_slug: str) -> str:
+    slug = species_slug.strip()
+    if not slug:
+        raise ValueError("species_slug cannot be empty")
+    if slug.startswith("/") or slug.endswith("/"):
+        raise ValueError(f"species_slug must be a slug, got {species_slug!r}")
+    if any(token in slug for token in ("/", "\\", "..")):
+        raise ValueError(f"species_slug must not contain path separators, got {species_slug!r}")
+    return slug
+
+
+def normalize_relative_path(value: str, *, field_name: str = "relative path") -> str:
+    rel = value.strip().strip("/")
+    if not rel:
+        raise ValueError(f"{field_name} cannot be empty")
+    path = Path(rel)
+    if path.is_absolute():
+        raise ValueError(f"{field_name} must be relative, got {value!r}")
+    if ".." in path.parts:
+        raise ValueError(f"{field_name} must stay within the species root, got {value!r}")
+    return path.as_posix()
+
+
+def resolve_species_relative_path(species_root: Path, relative_path: str, *, field_name: str = "relative path") -> Path:
+    rel = normalize_relative_path(relative_path, field_name=field_name)
+    return species_root / Path(rel)
+
+
+def build_layout(data_home: Path, species_slug: str) -> ProjectLayout:
+    home = data_home.expanduser().resolve()
+    slug = normalize_species_slug(species_slug)
+    root = home / slug
     return ProjectLayout(
+        data_home=home,
+        species_slug=slug,
         root=root,
-        raw_images=root / "raw_images",
+        originals=root / "originals",
         metadata=root / "metadata",
+        labelstudio_imports=root / "labelstudio" / "imports",
+        labelstudio_images_compressed=root / "labelstudio" / "images_compressed",
         labelstudio_exports=root / "labelstudio" / "exports",
         labelstudio_normalized=root / "labelstudio" / "normalized",
         derived_splits=root / "derived" / "splits",
@@ -37,12 +91,15 @@ def build_layout(data_root: Path) -> ProjectLayout:
     )
 
 
-def ensure_layout(data_root: Path) -> ProjectLayout:
-    layout = build_layout(data_root)
+def ensure_layout(data_home: Path, species_slug: str) -> ProjectLayout:
+    layout = build_layout(data_home, species_slug)
     for path in (
+        layout.data_home,
         layout.root,
-        layout.raw_images,
+        layout.originals,
         layout.metadata,
+        layout.labelstudio_imports,
+        layout.labelstudio_images_compressed,
         layout.labelstudio_exports,
         layout.labelstudio_normalized,
         layout.derived_splits,

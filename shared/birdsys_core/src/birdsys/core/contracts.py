@@ -45,11 +45,13 @@ class ModelHealthPayload:
 @dataclass(frozen=True)
 class LabelStudioBatchSummary:
     batch_name: str
-    data_root: str
+    data_home: str
+    species_slug: str
+    species_root: str
     source_root: str
     mirror_root: str
     import_root: str
-    dataset_name: str
+    compression_profile: str
     images_available: int
     images_selected: int
     jpeg_quality: int

@@ -5,12 +5,11 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
-import os
 import pathlib
 from collections.abc import Sequence
 from typing import Any
 
-from birdsys.core import diff_numeric_dict, ensure_layout, find_previous_version_dir, next_version_dir
+from birdsys.core import default_data_home, default_species_slug, diff_numeric_dict, ensure_layout, find_previous_version_dir, next_version_dir
 from birdsys.datasets.build_split import render_split_plots
 from birdsys.datasets.dataset_common import (
     LABEL_FIELDS,
@@ -28,7 +27,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--annotation-version", required=True, help="ann_vNNN")
     parser.add_argument("--split-version", required=True, help="split_vNNN")
     parser.add_argument("--crop-spec-id", required=True, help="Named crop artifact id")
-    parser.add_argument("--data-root", default=os.getenv("BIRDS_DATA_ROOT", "/data/birds_project"))
+    parser.add_argument("--data-home", default=str(default_data_home()))
+    parser.add_argument("--species-slug", default=default_species_slug())
     parser.add_argument("--dataset-version", default="", help="Optional explicit output folder name, e.g. ds_v001")
     return parser.parse_args(argv)
 
@@ -106,9 +106,11 @@ def write_dataset_report_md(
     lines = [
         f"# Dataset Report: {manifest['dataset_version']}",
         "",
+        f"- Species slug: `{manifest['species_slug']}`",
         f"- Source annotation version: `{manifest['source_annotation_version']}`",
         f"- Source split version: `{manifest['source_split_version']}`",
         f"- Crop spec id: `{manifest['crop_spec_id']}`",
+        f"- Image source: `{manifest['image_source']}`",
         f"- Rows: total `{counts['rows_total']}`, test `{counts['rows_test']}`, train_pool `{counts['rows_train_pool']}`",
         f"- Images: total `{counts['images_total']}`, test `{counts['images_test']}`, train_pool `{counts['images_train_pool']}`",
         f"- Test membership: preserved `{membership['preserved']}`, added `{membership['added']}`, removed `{membership['removed']}`",
@@ -155,8 +157,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ModuleNotFoundError as exc:
         raise RuntimeError("pandas is required for dataset building.") from exc
 
-    data_root = pathlib.Path(args.data_root).expanduser().resolve()
-    layout = ensure_layout(data_root)
+    layout = ensure_layout(pathlib.Path(args.data_home), args.species_slug)
 
     birds_path = layout.labelstudio_normalized / args.annotation_version / "birds.parquet"
     images_path = layout.labelstudio_normalized / args.annotation_version / "images_labels.parquet"
@@ -168,8 +169,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     split_manifest_path = split_dir / "split_manifest.json"
     crop_rows_path = crop_dir / "_crops.parquet"
     crop_manifest_path = crop_dir / "crop_manifest.json"
-    meta_path = layout.metadata / "images.parquet"
-
     for path in (birds_path, images_path, test_groups_path, pool_groups_path, folds_path, split_manifest_path, crop_rows_path, crop_manifest_path):
         if not path.exists():
             raise FileNotFoundError(path)
@@ -210,17 +209,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     fold_assignments_df["image_id"] = fold_assignments_df["image_id"].astype(str)
     fold_assignments_df["fold_id"] = fold_assignments_df["fold_id"].astype(int)
 
-    extra_meta = None
-    if meta_path.exists():
-        extra_meta = pd.read_parquet(meta_path)[["image_id", "filepath", "site_id"]].drop_duplicates(subset=["image_id"]).copy()
-        extra_meta["image_id"] = extra_meta["image_id"].astype(str)
-
     all_df = birds_df.merge(images_df, on=["annotation_version", "image_id"], how="left", validate="many_to_one", suffixes=("", "_image"))
-    if extra_meta is not None:
-        all_df = all_df.merge(extra_meta, on="image_id", how="left", validate="many_to_one", suffixes=("", "_meta"))
-        all_df["filepath"] = all_df["filepath_meta"].combine_first(all_df["filepath"])
-        all_df["site_id"] = all_df["site_id_meta"].combine_first(all_df["site_id"])
-        all_df = all_df.drop(columns=["filepath_meta", "site_id_meta"])
     all_df = all_df.merge(crop_rows_df[["bird_id", "crop_path", "crop_width", "crop_height"]], on="bird_id", how="left", validate="one_to_one")
     missing_crops = int(all_df["crop_path"].isna().sum())
     if missing_crops:
@@ -300,15 +289,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "dataset_version": out_dir.name,
         "source_annotation_version": args.annotation_version,
+        "species_slug": layout.species_slug,
+        "species_root": str(layout.root),
         "source_split_version": args.split_version,
         "crop_spec_id": args.crop_spec_id,
-        "data_root": str(data_root),
+        "image_source": crop_manifest.get("image_source"),
+        "data_home": str(layout.data_home),
         "inputs": {
             "birds_parquet": str(birds_path),
             "images_labels_parquet": str(images_path),
             "split_manifest": str(split_manifest_path),
             "crop_manifest": str(crop_manifest_path),
-            "metadata_parquet": str(meta_path) if meta_path.exists() else None,
         },
         "crop_spec": crop_manifest.get("crop_spec"),
         "counts": counts,

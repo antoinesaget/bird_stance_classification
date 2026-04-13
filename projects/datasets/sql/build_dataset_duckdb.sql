@@ -10,10 +10,6 @@ images AS (
   SELECT *
   FROM read_parquet('{{images_labels_parquet}}')
 ),
-meta AS (
-  SELECT *
-  FROM read_parquet('{{metadata_parquet}}')
-),
 joined AS (
   SELECT
     b.annotation_version,
@@ -28,17 +24,20 @@ joined AS (
     b.specie,
     b.behavior,
     b.substrate,
-    b.legs,
+    b.stance,
+    i.species_slug,
+    i.source_filename,
+    i.original_relpath,
+    i.compressed_relpath,
+    i.labelstudio_localfiles_relpath,
+    i.compression_profile,
     i.image_usable,
-    m.filepath,
-    m.site_id,
-    abs(hash(coalesce(m.site_id, '') || ':' || b.image_id)) % 100 AS split_bucket
+    i.site_id,
+    abs(hash(coalesce(i.site_id, '') || ':' || b.image_id)) % 100 AS split_bucket
   FROM birds b
   LEFT JOIN images i
     ON b.annotation_version = i.annotation_version
    AND b.image_id = i.image_id
-  LEFT JOIN meta m
-    ON b.image_id = m.image_id
 )
 SELECT
   *,

@@ -1,16 +1,22 @@
 #!/usr/bin/env python3
-"""Purpose: Build compressed local-files batches and manifests for new Label Studio tasks"""
+"""Purpose: Build species-aware local-files batches and manifests for Label Studio."""
 from __future__ import annotations
 
 import argparse
 import csv
 import json
-import os
 import random
 from collections.abc import Sequence
 from pathlib import Path
 
-from birdsys.core import LabelStudioBatchSummary
+from birdsys.core import (
+    LabelStudioBatchSummary,
+    default_data_home,
+    default_species_slug,
+    ensure_layout,
+    normalize_relative_path,
+    resolve_species_relative_path,
+)
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"}
@@ -20,22 +26,24 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Build a deterministic Label Studio local-files import batch with a JPEG mirror."
     )
-    parser.add_argument("--data-root", default=os.getenv("BIRDS_DATA_ROOT", "/data/birds_project"))
+    parser.add_argument("--data-home", default=str(default_data_home()))
+    parser.add_argument("--species-slug", default=default_species_slug())
     parser.add_argument(
         "--source-relative-root",
-        default="raw_images",
-        help="Source image root under data_root.",
+        default="originals",
+        help="Source image root under the species root.",
     )
     parser.add_argument(
         "--mirror-relative-root",
-        required=True,
-        help="Mirror root under data_root where JPEG files are written.",
+        default="",
+        help="Optional mirror root under the species root. Defaults to labelstudio/images_compressed/<compression-profile>.",
     )
     parser.add_argument(
         "--import-relative-root",
         default="labelstudio/imports",
-        help="Import artifact root under data_root.",
+        help="Import artifact root under the species root.",
     )
+    parser.add_argument("--compression-profile", default="q60")
     parser.add_argument("--batch-name", required=True)
     parser.add_argument("--sample-size", type=int, default=5000)
     parser.add_argument("--sample-mode", choices=["first", "random"], default="random")
@@ -45,11 +53,6 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--ls-local-files-prefix",
         default="/data/local-files/?d=",
         help="Label Studio local-files URL prefix.",
-    )
-    parser.add_argument(
-        "--dataset-name",
-        default="",
-        help="Dataset name as mounted in Label Studio; defaults to the data-root directory name.",
     )
     parser.add_argument(
         "--recursive",
@@ -103,30 +106,27 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ModuleNotFoundError as exc:
         raise RuntimeError("Pillow is required. Install dependencies with `make bootstrap` or `pip install -e .[dev]`.") from exc
 
-    data_root = Path(args.data_root).expanduser().resolve()
-    if not data_root.exists():
-        raise FileNotFoundError(data_root)
+    layout = ensure_layout(Path(args.data_home), args.species_slug)
+    source_relative_root = normalize_relative_path(args.source_relative_root, field_name="source-relative-root")
+    import_relative_root = normalize_relative_path(args.import_relative_root, field_name="import-relative-root")
+    compression_profile = args.compression_profile.strip()
+    if not compression_profile:
+        raise ValueError("--compression-profile cannot be empty")
+    mirror_relative_root = (
+        normalize_relative_path(args.mirror_relative_root, field_name="mirror-relative-root")
+        if args.mirror_relative_root.strip()
+        else f"labelstudio/images_compressed/{compression_profile}"
+    )
 
-    source_relative_root = args.source_relative_root.strip().strip("/")
-    mirror_relative_root = args.mirror_relative_root.strip().strip("/")
-    import_relative_root = args.import_relative_root.strip().strip("/")
-    if not source_relative_root:
-        raise ValueError("--source-relative-root cannot be empty")
-    if not mirror_relative_root:
-        raise ValueError("--mirror-relative-root cannot be empty")
-    if not import_relative_root:
-        raise ValueError("--import-relative-root cannot be empty")
-
-    source_root = data_root / source_relative_root
+    source_root = resolve_species_relative_path(layout.root, source_relative_root, field_name="source-relative-root")
     if not source_root.exists():
         raise FileNotFoundError(source_root)
 
-    mirror_root = data_root / mirror_relative_root
-    import_root = data_root / import_relative_root
+    mirror_root = resolve_species_relative_path(layout.root, mirror_relative_root, field_name="mirror-relative-root")
+    import_root = resolve_species_relative_path(layout.root, import_relative_root, field_name="import-relative-root")
     mirror_root.mkdir(parents=True, exist_ok=True)
     import_root.mkdir(parents=True, exist_ok=True)
 
-    dataset_name = args.dataset_name.strip() or data_root.name
     all_images = iter_images(source_root, recursive=args.recursive)
     if not all_images:
         raise RuntimeError(f"No images found in {source_root}")
@@ -143,7 +143,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     seen_urls: set[str] = set()
 
     for sample_index, source_path in enumerate(selected):
-        source_rel_from_root = source_path.relative_to(data_root)
+        source_rel_from_root = source_path.relative_to(layout.root)
         source_rel_from_source = source_path.relative_to(source_root)
         target_rel_from_mirror = source_rel_from_source.with_suffix(".jpg")
         target_path = mirror_root / target_rel_from_mirror
@@ -163,8 +163,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     subsampling=0,
                 )
 
-        served_rel_from_root = target_path.relative_to(data_root)
-        served_url = f"{args.ls_local_files_prefix}{dataset_name}/{served_rel_from_root.as_posix()}"
+        served_rel_from_root = target_path.relative_to(layout.root)
+        localfiles_relpath = Path("birds") / layout.species_slug / served_rel_from_root
+        served_url = f"{args.ls_local_files_prefix}{localfiles_relpath.as_posix()}"
         if served_url in seen_urls:
             raise ValueError(f"duplicate served url generated: {served_url}")
         seen_urls.add(served_url)
@@ -173,12 +174,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             "sample_index": sample_index,
             "sample_seed": args.seed,
             "batch_name": args.batch_name,
+            "species_slug": layout.species_slug,
+            "compression_profile": compression_profile,
             "image_id": source_path.stem,
             "source_filename": source_path.name,
-            "original_absolute_path": str(source_path),
             "original_relative_path": source_rel_from_root.as_posix(),
-            "served_absolute_path": str(target_path),
             "served_relative_path": served_rel_from_root.as_posix(),
+            "served_localfiles_relative_path": localfiles_relpath.as_posix(),
             "served_url": served_url,
             "original_bytes": int(source_path.stat().st_size),
             "served_bytes": int(target_path.stat().st_size),
@@ -191,12 +193,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "image": served_url,
                     "image_id": source_path.stem,
                     "source_filename": source_path.name,
-                    "dataset_name": dataset_name,
                 },
                 "meta": {
                     "sample_index": sample_index,
                     "sample_seed": args.seed,
                     "batch_name": args.batch_name,
+                    "species_slug": layout.species_slug,
+                    "compression_profile": compression_profile,
                     "original_relative_path": row["original_relative_path"],
                     "served_relative_path": row["served_relative_path"],
                 },
@@ -220,11 +223,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     total_served = sum(int(row["served_bytes"]) for row in rows)
     summary = LabelStudioBatchSummary(
         batch_name=args.batch_name,
-        data_root=str(data_root),
+        data_home=str(layout.data_home),
+        species_slug=layout.species_slug,
+        species_root=str(layout.root),
         source_root=str(source_root),
         mirror_root=str(mirror_root),
         import_root=str(import_root),
-        dataset_name=dataset_name,
+        compression_profile=compression_profile,
         images_available=len(all_images),
         images_selected=len(selected),
         jpeg_quality=args.jpeg_quality,
@@ -243,6 +248,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     summary_json.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
 
+    print(f"species_root={layout.root}")
     print(f"source_root={source_root}")
     print(f"mirror_root={mirror_root}")
     print(f"import_root={import_root}")

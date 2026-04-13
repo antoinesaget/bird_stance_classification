@@ -9,7 +9,9 @@ This subproject contains the surviving Label Studio integration code and the Tru
 - `src/birdsys/labelstudio/import_tasks.py`: import prepared task bundles into a project
 - `src/birdsys/labelstudio/create_project.py`: create or update a project from the repo label config and clone source project defaults
 - `src/birdsys/labelstudio/prefill_predictions.py`: fetch tasks, call the ML backend, and write prediction rows back into Label Studio
-- `src/birdsys/labelstudio/build_localfiles_batch.py`: create compressed local-files batches plus manifests for imports
+- `src/birdsys/labelstudio/build_localfiles_batch.py`: create species-aware compressed local-files batches plus manifests for imports
+- `src/birdsys/labelstudio/sync_species_data.py`: sync one species root from TrueNAS onto a local host before extraction or dataset builds
+- `src/birdsys/labelstudio/backfill_task_metadata.py`: one-time metadata backfill for older Label Studio tasks using stored import manifests
 
 ## Surviving Assets
 
@@ -29,5 +31,5 @@ This subproject contains the surviving Label Studio integration code and the Tru
 - `export_snapshot.py` still imports cleanly from the remaining package tree.
 - `extract_annotations.py` is now the intended operator surface for human-annotation extraction.
 - `create_project.py`, `import_tasks.py`, and `prefill_predictions.py` are built on that same remaining Label Studio surface.
-- `build_localfiles_batch.py` now works again with the restored minimal shared contracts/helpers.
+- `build_localfiles_batch.py` now writes the strict relative-path metadata required by extraction.
 - TrueNAS deployment assets are still present and appear to be the intended production Label Studio surface.

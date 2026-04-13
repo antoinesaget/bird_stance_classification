@@ -21,7 +21,7 @@ COPY shared/birdsys_core/src /app/shared/birdsys_core/src
 COPY projects/ml_backend/src /app/projects/ml_backend/src
 
 ENV PYTHONPATH=/app/ops/src:/app/shared/birdsys_core/src:/app/projects/ml_backend/src
-ENV MODEL_A_WEIGHTS=/data/birds_project/models/detector/yolo11m_pretrained/weights.pt
+ENV MODEL_A_WEIGHTS=/data/birds/black_winged_stilt/models/detector/yolo11m_pretrained/weights.pt
 
 EXPOSE 9090
 

@@ -26,7 +26,7 @@ This is the single canonical operations document for the current cleaned repo. I
 - TrueNAS
   - minimal deployment checkout for Label Studio
   - live Label Studio and Postgres host
-  - canonical storage host for `birds_project` and `lines_project`
+  - canonical storage host for `/mnt/tank/media/birds`
 
 ## Canonical Paths
 
@@ -38,29 +38,31 @@ This is the single canonical operations document for the current cleaned repo. I
 ### `iats`
 
 - Repo checkout: `/home/antoine/bird_stance_classification`
-- Bird data root: `/data/birds_project`
-- Lines data root: `/data/lines_project`
-- Served detector slot: `/data/birds_project/models/detector/served/model_a/current/weights.pt`
-- Served attribute artifact slot: `/data/birds_project/models/attributes/served/model_b/current`
+- Bird data home: `/data/birds`
+- Active species root: `/data/birds/black_winged_stilt`
+- Legacy species root: `/data/birds/old_specie`
+- Served detector slot: `/data/birds/black_winged_stilt/models/detector/served/model_a/current/weights.pt`
+- Served attribute artifact slot: `/data/birds/black_winged_stilt/models/attributes/served/model_b/current`
 
 ### TrueNAS
 
 - Repo checkout: `/mnt/apps/code/bird_stance_classification`
 - Stable app id: `bird-stance-classification`
-- Bird data root: `/mnt/tank/media/birds_project`
-- Lines data root: `/mnt/tank/media/lines_project`
-- Label Studio imports root: `/mnt/tank/media/lines_project/labelstudio/imports`
-- Lines compressed mirror root: `/mnt/tank/media/lines_project/labelstudio/images_compressed/lines_bw_stilts_q60`
+- Bird data home: `/mnt/tank/media/birds`
+- Active species root: `/mnt/tank/media/birds/black_winged_stilt`
+- Legacy species root: `/mnt/tank/media/birds/old_specie`
+- Label Studio imports root: `/mnt/tank/media/birds/black_winged_stilt/labelstudio/imports`
+- Compressed mirror root: `/mnt/tank/media/birds/black_winged_stilt/labelstudio/images_compressed/q60`
 
 ## Data Ownership
 
 TrueNAS is authoritative for:
 
-- `birds_project/raw_images`
-- `birds_project/metadata`
-- `birds_project/labelstudio/exports`
-- `lines_project/labelstudio/imports`
-- `lines_project/labelstudio/images_compressed`
+- `birds/<species_slug>/originals`
+- `birds/<species_slug>/metadata`
+- `birds/<species_slug>/labelstudio/imports`
+- `birds/<species_slug>/labelstudio/images_compressed`
+- `birds/<species_slug>/labelstudio/exports`
 
 `iats` owns:
 
@@ -77,19 +79,18 @@ TrueNAS is authoritative for:
 - Container name: `birds-ml-backend`
 - Port mapping default: `9090:9090`
 - Mounted data roots:
-  - `${BIRDS_DATA_ROOT} -> /data/birds_project` read-only
-  - `${LINES_DATA_ROOT} -> /data/lines_project` read-only
+  - `${BIRD_DATA_HOME} -> /data/birds` read-only
 
 Expected key environment values:
 
-- `BIRDS_DATA_ROOT=/data/birds_project`
-- `LINES_DATA_ROOT=/data/lines_project`
+- `BIRD_DATA_HOME=/data/birds`
+- `BIRD_SPECIES_SLUG=black_winged_stilt`
 - `MODEL_A_DEVICE=0`
 - `MODEL_A_IMGSZ=1280`
 - `MODEL_A_MAX_DET=300`
 - `MODEL_A_CONF=0.25`
 - `MODEL_A_IOU=0.45`
-- `MODEL_B_CHECKPOINT=/data/birds_project/models/attributes/served/model_b/current`
+- `MODEL_B_CHECKPOINT=/data/birds/black_winged_stilt/models/attributes/served/model_b/current`
 - `BIRDS_LOG_LEVEL=INFO`
 - `ML_BACKEND_PORT=9090`
 
@@ -102,15 +103,14 @@ Expected key environment values:
   - `birds-label-studio`
 - Port mapping default: `30280:8080`
 - Mounted data roots:
-  - `${BIRDS_DATA_ROOT} -> /data/birds_project`
-  - `${LINES_DATA_ROOT} -> /data/lines_project`
+  - `${BIRD_DATA_HOME} -> /data/birds`
 
 Expected key environment values:
 
 - `TRUENAS_APP_ID=bird-stance-classification`
 - `TRUENAS_APP_PORT=30280`
-- `BIRDS_DATA_ROOT=/mnt/tank/media/birds_project`
-- `LINES_DATA_ROOT=/mnt/tank/media/lines_project`
+- `BIRD_DATA_HOME=/mnt/tank/media/birds`
+- `BIRD_SPECIES_SLUG=black_winged_stilt`
 - `LABEL_STUDIO_URL=https://birds.ashs.live`
 - `LABEL_STUDIO_HOST=https://birds.ashs.live`
 - `LABEL_STUDIO_API_TOKEN`

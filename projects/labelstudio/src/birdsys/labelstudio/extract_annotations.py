@@ -9,7 +9,7 @@ import pathlib
 import shutil
 from collections.abc import Sequence
 
-from birdsys.core import ensure_layout, next_version_dir
+from birdsys.core import default_data_home, default_species_slug, ensure_layout, next_version_dir
 from birdsys.datasets.export_normalize import (
     CURRENT_SCHEMA_VERSION,
     DEFAULT_LABEL_CONFIG,
@@ -21,7 +21,8 @@ from birdsys.labelstudio.export_snapshot import export_project_snapshot, request
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Create one versioned Label Studio annotation extract")
-    parser.add_argument("--data-root", default=os.getenv("BIRDS_DATA_ROOT", "/data/birds_project"))
+    parser.add_argument("--data-home", default=str(default_data_home()))
+    parser.add_argument("--species-slug", default=default_species_slug())
     parser.add_argument("--annotation-version", default="", help="Optional explicit ann_vNNN override")
     parser.add_argument("--label-config", default=str(DEFAULT_LABEL_CONFIG))
     parser.add_argument("--base-url", default=os.getenv("LABEL_STUDIO_URL", ""))
@@ -72,12 +73,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     load_dotenv(pathlib.Path(".env").resolve())
     args = parse_args(argv)
 
-    data_root = pathlib.Path(args.data_root).expanduser().resolve()
+    data_home = pathlib.Path(args.data_home).expanduser().resolve()
     label_config = pathlib.Path(args.label_config).expanduser().resolve()
     if not label_config.exists():
         raise FileNotFoundError(label_config)
 
-    layout = ensure_layout(data_root)
+    layout = ensure_layout(data_home, args.species_slug)
     export_dir = resolve_version_dir(layout.labelstudio_exports, args.annotation_version)
     annotation_version = export_dir.name
     raw_export_path = export_dir / "project_export.json"
@@ -135,7 +136,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     result = normalize_export(
         export_json=raw_export_path,
         annotation_version=annotation_version,
-        data_root=data_root,
+        data_home=data_home,
+        species_slug=args.species_slug,
         label_config=label_config,
         raw_metadata=metadata,
     )

@@ -42,7 +42,6 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - ${BIRDS_DATA_ROOT}:/data/birds_project
-      - ${LINES_DATA_ROOT}:/data/lines_project
+      - ${BIRD_DATA_HOME}:/data/birds
       - ${LABEL_STUDIO_APP_DATA_DIR}:/label-studio/data
       - ./overrides/localfiles_views.py:/label-studio/label_studio/io_storages/localfiles/views.py:ro

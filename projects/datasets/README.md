@@ -18,8 +18,8 @@ This subproject owns the offline data-prep path from Label Studio export to spli
 
 ## Data Contract
 
-- The scripts expect a BirdSys data root at `BIRDS_DATA_ROOT` and operate against the shared project layout under that root.
-- The exact directory layout is currently mediated by `birdsys.core.ensure_layout()`.
+- The scripts now expect a species-aware data home at `BIRD_DATA_HOME`, plus a selected `BIRD_SPECIES_SLUG`.
+- The exact directory layout is mediated by `birdsys.core.ensure_layout(data_home, species_slug)`.
 
 ## Current Status
 

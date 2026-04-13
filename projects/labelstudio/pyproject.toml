@@ -17,6 +17,9 @@ dependencies = [
 
 [project.scripts]
 birdsys-labelstudio-extract-annotations = "birdsys.labelstudio.extract_annotations:main"
+birdsys-labelstudio-build-localfiles-batch = "birdsys.labelstudio.build_localfiles_batch:main"
+birdsys-labelstudio-sync-species-data = "birdsys.labelstudio.sync_species_data:main"
+birdsys-labelstudio-backfill-task-metadata = "birdsys.labelstudio.backfill_task_metadata:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

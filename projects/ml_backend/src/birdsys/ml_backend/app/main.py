@@ -135,49 +135,47 @@ def _task_image_path(task: dict[str, Any]) -> pathlib.Path:
 
     def _resolve_local_files_query_path(value: str) -> pathlib.Path:
         # Label Studio local-files URLs commonly use query values like:
-        # - birds_project/raw_images/...
-        # - lines_project/labelstudio/images_compressed/...
-        # - raw_images/...
-        # - /data/birds_project/raw_images/...
+        # - birds/black_winged_stilt/originals/...
+        # - birds/black_winged_stilt/labelstudio/images_compressed/q60/...
+        # - /data/birds/black_winged_stilt/originals/...
         decoded = urllib.parse.unquote(value).strip()
         if not decoded:
             raise ValueError("Label Studio local-files URL has empty d= query value")
 
-        data_root_parent = env.birds_data_root.parent
+        species_root = env.birds_data_root
+        data_home = species_root.parent
 
         if decoded == "/data":
-            return _safe_path(str(data_root_parent))
+            return _safe_path(str(data_home.parent))
 
-        if decoded == "/data/birds_project":
-            return _safe_path(str(env.birds_data_root))
+        if decoded == "/data/birds":
+            return _safe_path(str(data_home))
 
-        if decoded.startswith("/data/"):
-            rel = decoded.removeprefix("/data/").lstrip("/")
-            return _safe_path(str(data_root_parent / rel))
+        if decoded == f"/data/birds/{species_root.name}":
+            return _safe_path(str(species_root))
 
-        if decoded.startswith("/data/birds_project/"):
-            rel = decoded.removeprefix("/data/birds_project/").lstrip("/")
-            return _safe_path(str(env.birds_data_root / rel))
+        if decoded.startswith("/data/birds/"):
+            rel = decoded.removeprefix("/data/birds/").lstrip("/")
+            return _safe_path(str(data_home / rel))
 
         if decoded.startswith("/"):
             return _safe_path(decoded)
 
-        if decoded.startswith("data/"):
-            if decoded.startswith("data/birds_project/"):
-                rel = decoded.removeprefix("data/birds_project/").lstrip("/")
-                return _safe_path(str(env.birds_data_root / rel))
-            rel = decoded.removeprefix("data/").lstrip("/")
-            return _safe_path(str(data_root_parent / rel))
+        if decoded.startswith("data/birds/"):
+            rel = decoded.removeprefix("data/birds/").lstrip("/")
+            return _safe_path(str(data_home / rel))
 
-        if decoded.startswith("birds_project/"):
-            rel = decoded.removeprefix("birds_project/").lstrip("/")
-            return _safe_path(str(env.birds_data_root / rel))
+        if decoded.startswith("birds/"):
+            rel = decoded.removeprefix("birds/").lstrip("/")
+            return _safe_path(str(data_home / rel))
 
         dataset, sep, remainder = decoded.partition("/")
         if sep and dataset:
-            return _safe_path(str(data_root_parent / dataset / remainder))
+            if dataset == "birds":
+                return _safe_path(str(data_home / remainder))
+            raise ValueError(f"Unsupported local-files dataset root {dataset!r}")
 
-        return _safe_path(str(env.birds_data_root / decoded))
+        return _safe_path(str(species_root / decoded))
 
     data = task.get("data") or {}
     candidates = [data.get("image"), data.get("filepath"), data.get("path"), task.get("image")]
