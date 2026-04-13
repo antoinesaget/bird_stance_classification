@@ -40,14 +40,6 @@
 - Lines import root: `/mnt/tank/media/lines_project/labelstudio/imports`
 - Lines compressed mirror root: `/mnt/tank/media/lines_project/labelstudio/images_compressed/lines_bw_stilts_q60`
 
-## Tracked Env Templates
-
-- `ops/env/local.env.example`
-- `projects/ml_backend/deploy/env/iats.env.example`
-- `projects/labelstudio/deploy/env/truenas.env.example`
-
-The managed scripts expect untracked env files with the same names minus `.example`.
-
 ## Data Ownership
 
 TrueNAS is authoritative for:
@@ -69,20 +61,16 @@ TrueNAS is authoritative for:
 Under `birds_project` on `iats`:
 
 - `models/detector/served/model_a/current`
-- `models/detector/served/model_a/releases/<timestamp>`
-- `models/attributes/convnextv2s_v001`
-- `models/attributes/cv_reports/attributes_cv_v002`
-- `models/attributes/served/model_b/current`
-- `models/attributes/served/model_b/releases/<timestamp>`
-
-Archived non-live model artifacts should go under:
-
-- `/data/birds_project/models/archive/<date>/`
+- `models/detector/served/model_a/releases/<timestamp>` 
+- `models/attributes/convnextv2s_v001` 
+- `models/attributes/cv_reports/attributes_cv_v002` 
+- `models/attributes/served/model_b/current` 
+- `models/attributes/served/model_b/releases/<timestamp>` 
 
 On TrueNAS for `lines_project`:
 
 - canonical batch: `lines_bw_stilts_5k_seed_20260325_q60.*`
-- archived duplicate batch: `labelstudio/imports/archive/2026-03-26/lines_bw_stilts_5000_seed_20260325_q60.*`
+- archived duplicate batch: `labelstudio/imports/archive/2026-03-26/lines_bw_stilts_5000_seed_20260325_q60.*` 
 
 ## Live ML Backend Expectations
 
@@ -102,14 +90,5 @@ On TrueNAS for `lines_project`:
 - Stable state lives on TrueNAS only
 - Project `4`: legacy bird annotation project
 - Project `7`: `Black Wing Stilts 1` lines batch
-- Project `7` ML backend URL: `http://192.168.0.42:9090`
+- Project `7` ML backend URL: `http://192.168.0.42:9090` 
 
-## Verification Commands
-
-```bash
-make bootstrap
-./.venv/bin/pytest -q tests/smoke
-make smoke-remote
-ssh iats 'curl -sS http://127.0.0.1:9090/health'
-ssh truenas 'midclt call app.get_instance bird-stance-classification'
-```
