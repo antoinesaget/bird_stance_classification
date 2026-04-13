@@ -69,7 +69,7 @@ def test_train_attributes_cv_accepts_old_model_artifact_directory(tmp_path: Path
     monkeypatch.setattr(
         cv_mod,
         "train_model",
-        lambda **kwargs: SimpleNamespace(
+        lambda **_kwargs: SimpleNamespace(
             model=object(),
             supported_labels={head: cv_mod.ID_TO_LABELS[head][:] for head in cv_mod.HEADS},
             eval_visible_label_counts=_empty_visible_counts(),
@@ -79,7 +79,7 @@ def test_train_attributes_cv_accepts_old_model_artifact_directory(tmp_path: Path
     monkeypatch.setattr(cv_mod, "collect_visible_label_counts", lambda frame: _empty_visible_counts())
     monkeypatch.setattr(cv_mod, "summarize_labels", lambda frame: {"isbird": {"yes": int(len(frame))}})
 
-    def _save_checkpoint(out_dir: Path, **kwargs) -> Path:
+    def _save_checkpoint(out_dir: Path, **_kwargs) -> Path:
         checkpoint = out_dir / "checkpoint.pt"
         checkpoint.write_bytes(b"checkpoint")
         return checkpoint
@@ -88,7 +88,7 @@ def test_train_attributes_cv_accepts_old_model_artifact_directory(tmp_path: Path
     monkeypatch.setattr(
         cv_mod,
         "evaluate_checkpoint_on_frame",
-        lambda checkpoint_path, frame, device, **kwargs: _dummy_eval_result(
+        lambda checkpoint_path, frame, device, **_kwargs: _dummy_eval_result(
             checkpoint_path, 0.4 if Path(checkpoint_path) == artifact_dir else 0.8
         ),
     )

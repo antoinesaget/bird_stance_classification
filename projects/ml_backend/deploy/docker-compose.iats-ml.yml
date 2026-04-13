@@ -15,7 +15,6 @@ services:
       MODEL_A_CONF: ${MODEL_A_CONF:-0.25}
       MODEL_A_IOU: ${MODEL_A_IOU:-0.45}
       MODEL_B_CHECKPOINT: ${MODEL_B_CHECKPOINT:-/data/birds_project/models/attributes/served/model_b/current}
-      MODEL_C_CHECKPOINT: ${MODEL_C_CHECKPOINT:-}
       BIRDS_LOG_LEVEL: ${BIRDS_LOG_LEVEL:-INFO}
     ports:
       - "${ML_BACKEND_BIND_HOST:-0.0.0.0}:${ML_BACKEND_PORT:-9090}:9090"

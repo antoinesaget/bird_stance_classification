@@ -21,8 +21,6 @@ from PIL import Image
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 from torchvision import transforms
 
-PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[3]
-
 from birdsys.core import diff_numeric_dict, ensure_layout, find_previous_version_dir, next_version_dir
 from birdsys.core.attributes import (
     BEHAVIOR_TO_ID,
@@ -41,6 +39,7 @@ from birdsys.core.models import MultiHeadAttributeModel
 from birdsys.ml_experiments.metrics import class_supports, confusion_matrix, macro_f1
 
 
+PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[3]
 HEADS = ["readability", "specie", "behavior", "substrate", "stance"]
 CONFUSION_HEADS = ["behavior", "substrate", "stance"]
 LABEL_MAPS = {

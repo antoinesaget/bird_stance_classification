@@ -31,7 +31,7 @@ from birdsys.core.model_b_artifacts import (
     fallback_label,
     load_model_b_artifact,
 )
-from birdsys.ml_experiments.metrics import class_supports, confusion_matrix, macro_f1
+from birdsys.ml_experiments.metrics import confusion_matrix, macro_f1
 
 CONFUSION_HEADS = ["behavior", "substrate", "stance"]
 LABEL_MAPS = {
@@ -382,13 +382,3 @@ def evaluation_result_to_dict(result: EvaluationResult) -> dict[str, Any]:
             for head in result.confusion_matrices
         },
     }
-
-
-def confusion_to_csv_frame(result: EvaluationResult, head: str) -> pd.DataFrame:
-    matrix = result.confusion_matrices[head]
-    return pd.DataFrame(matrix, index=ID_TO_LABELS[head], columns=ID_TO_LABELS[head])
-
-
-def class_support_counts_from_storage(y_true: np.ndarray, head: str) -> dict[str, int]:
-    supports = class_supports(y_true, HEAD_CLASS_COUNTS[head]).tolist()
-    return {label: int(count) for label, count in zip(ID_TO_LABELS[head], supports)}

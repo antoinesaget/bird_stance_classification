@@ -15,8 +15,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[3]
-
 from birdsys.core import ensure_layout, next_version_dir
 from birdsys.ml_experiments.model_b_evaluation import (
     CONFUSION_HEADS,
@@ -35,6 +33,9 @@ from birdsys.ml_experiments.train_attributes import (
     summarize_labels,
     train_model,
 )
+
+
+PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[3]
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

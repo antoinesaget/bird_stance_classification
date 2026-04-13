@@ -6,7 +6,6 @@ import json
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 from common import IATS_ENV_PATH, PARENT_REPO_ROOT, TRUENAS_ENV_PATH, ROOT, load_env_file
 
@@ -54,9 +53,7 @@ def main() -> int:
     report_out = run_dir / "refresh_project7_predictions_report.json"
     subprocess.run(
         [
-            str(PARENT_REPO_ROOT / ".venv" / "bin" / "python"),
-            "-m",
-            "birdsys.cli.main",
+            str(PARENT_REPO_ROOT / ".venv" / "bin" / "birdsys"),
             "labelstudio",
             "prefill-predictions",
             "--base-url",

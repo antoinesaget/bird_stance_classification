@@ -13,3 +13,8 @@ Active BirdSys now focuses on:
 - creating reproducible autoresearch sandboxes
 
 The files under `archived/legacy/` are preserved for reference only and are no longer part of the maintained path, smoke tests, or documented ops flow.
+
+This archive also now holds:
+
+- deprecated backend-only codepaths removed from the live surface
+- obsolete compatibility config examples that are no longer part of the workspace contract

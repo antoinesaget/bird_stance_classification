@@ -16,7 +16,6 @@ class AppEnv:
     label_studio_api_token: str
     model_a_weights: Path
     model_b_checkpoint: Path | None
-    model_c_checkpoint: Path | None
     log_level: str
 
 
@@ -25,7 +24,6 @@ class ProjectFileConfig:
     data_root: Path | None = None
     model_a_weights: Path | None = None
     model_b_checkpoint: Path | None = None
-    model_c_checkpoint: Path | None = None
 
 
 def _safe_expand_path(raw: str) -> Path:
@@ -65,7 +63,6 @@ def _load_project_file_config(config_path: Path | None) -> ProjectFileConfig:
         data_root=_as_path(paths.get("data_root")),
         model_a_weights=_as_path(models.get("model_a_weights")),
         model_b_checkpoint=_as_path(models.get("model_b_checkpoint")),
-        model_c_checkpoint=_as_path(models.get("model_c_checkpoint")),
     )
 
 
@@ -84,7 +81,6 @@ def load_app_env(
     birds_data_root = _get_env_path("BIRDS_DATA_ROOT") or file_cfg.data_root or Path("/data/birds_project")
     model_a_weights = _get_env_path("MODEL_A_WEIGHTS") or file_cfg.model_a_weights or Path("yolo11m.pt").resolve()
     model_b_checkpoint = _get_env_path("MODEL_B_CHECKPOINT") or file_cfg.model_b_checkpoint
-    model_c_checkpoint = _get_env_path("MODEL_C_CHECKPOINT") or file_cfg.model_c_checkpoint
 
     return AppEnv(
         birds_data_root=birds_data_root,
@@ -92,6 +88,5 @@ def load_app_env(
         label_studio_api_token=os.getenv("LABEL_STUDIO_API_TOKEN", ""),
         model_a_weights=model_a_weights,
         model_b_checkpoint=model_b_checkpoint,
-        model_c_checkpoint=model_c_checkpoint,
         log_level=os.getenv("BIRDS_LOG_LEVEL", "INFO"),
     )

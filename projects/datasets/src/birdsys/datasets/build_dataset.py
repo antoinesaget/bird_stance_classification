@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import importlib.util
 import json
 import os
 import pathlib
@@ -119,10 +120,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         import duckdb
     except ModuleNotFoundError as exc:
         raise RuntimeError("duckdb is required. Install dependencies with `uv sync --python 3.11`.") from exc
-    try:
-        import pandas as pd
-    except ModuleNotFoundError as exc:
-        raise RuntimeError("pandas is required. Install dependencies with `uv sync --python 3.11`.") from exc
+    if importlib.util.find_spec("pandas") is None:
+        raise RuntimeError("pandas is required. Install dependencies with `uv sync --python 3.11`.")
 
     if args.train_pct + args.val_pct + args.test_pct != 100:
         raise ValueError("train/val/test percentages must sum to 100")

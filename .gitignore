@@ -10,7 +10,6 @@
 # Environment files
 .env
 .env.*
-!.env.example
 deploy/env/*.env
 !deploy/env/*.example
 ops/env/*.env

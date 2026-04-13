@@ -8,5 +8,5 @@ def test_core_imports() -> None:
 
 
 def test_backend_imports() -> None:
-    from birdsys.ml_backend.app.predictors import model_a_yolo, model_b_attributes, model_c_image_status  # noqa: F401
-    from birdsys.ml_backend.app import benchmark_predict, serializers  # noqa: F401
+    from birdsys.ml_backend.app.predictors import model_a_yolo, model_b_attributes  # noqa: F401
+    from birdsys.ml_backend.app import serializers  # noqa: F401

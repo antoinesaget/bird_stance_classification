@@ -169,14 +169,6 @@ class AttributePredictor:
             supported_labels=self.supported_labels,
         )
 
-    def _decode_head(self, logits: torch.Tensor, head: str) -> tuple[str, float]:
-        return decode_head_logits(
-            logits,
-            head,
-            id_to_label=self.id_to_label,
-            supported_labels=self.supported_labels,
-        )
-
     def _heuristic(self, det: Detection) -> AttributePrediction:
         readability_score = min(0.99, max(0.05, 0.25 + 0.85 * det.score))
         if readability_score >= 0.78:

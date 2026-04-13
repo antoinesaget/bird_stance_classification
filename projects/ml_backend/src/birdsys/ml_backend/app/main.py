@@ -8,7 +8,6 @@ import urllib.parse
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
 
 from birdsys.core import ModelHealthPayload, configure_logging, load_app_env
 
@@ -18,10 +17,6 @@ from .response_contract import format_predict_response
 from .serializers import to_label_studio_prediction
 
 MODEL_VERSION = "birdsys-backend-v0.1"
-
-
-class PredictRequest(BaseModel):
-    tasks: list[dict[str, Any]] | None = None
 
 
 app = FastAPI(title="BirdSys ML Backend", version="0.1.0")

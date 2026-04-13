@@ -18,6 +18,7 @@ class DummyModel:
         self.loaded_device = None
 
     def load_state_dict(self, state: dict, strict: bool = True) -> None:
+        _ = strict
         self.loaded_state = state
 
     def eval(self) -> DummyModel:

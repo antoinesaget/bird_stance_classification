@@ -3,10 +3,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import urllib.parse
-from pathlib import Path
 
-from common import ROOT, TRUENAS_ENV_PATH, load_env_file, request_empty, request_json, resolve_api_token
+from common import TRUENAS_ENV_PATH, load_env_file, request_empty, request_json, resolve_api_token
 
 
 def parse_args() -> argparse.Namespace:
