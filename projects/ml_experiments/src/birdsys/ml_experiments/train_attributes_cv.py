@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
-import hashlib
 import json
 import os
 import pathlib
@@ -41,10 +40,9 @@ PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[3]
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run grouped 5-fold CV for Model B attributes on the train pool")
-    parser.add_argument("--dataset-dir", required=True, help="Path to dataset dir with train/test parquet")
+    parser.add_argument("--dataset-dir", required=True, help="Path to dataset dir with train_pool/test/all_data parquet files")
     parser.add_argument("--config", default=str(PROJECT_ROOT / "config" / "train_attributes.yaml"))
     parser.add_argument("--data-root", default=os.getenv("BIRDS_DATA_ROOT", "/data/birds_project"))
-    parser.add_argument("--folds", type=int, default=5)
     parser.add_argument("--output-dir", default="")
     parser.add_argument("--schema-version", default="annotation_schema_v2")
     parser.add_argument("--smoke", action="store_true")
@@ -62,19 +60,32 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def stable_fold_id(group_id: str, folds: int) -> int:
-    digest = hashlib.sha1(group_id.encode("utf-8")).hexdigest()
-    return int(digest[:8], 16) % folds
+def load_train_pool_with_folds(*, dataset_dir: pathlib.Path, smoke: bool) -> pd.DataFrame:
+    train_pool_path = dataset_dir / "train_pool.parquet"
+    fold_assignments_path = dataset_dir / "fold_assignments.parquet"
+    pool_df = dataframe_from_split(train_pool_path, smoke)
+    if pool_df.empty:
+        raise RuntimeError("train_pool.parquet is empty after filtering")
+    if not fold_assignments_path.exists():
+        raise FileNotFoundError(fold_assignments_path)
+
+    assignments = pd.read_parquet(fold_assignments_path)[["image_id", "fold_id"]].drop_duplicates(subset=["image_id"]).copy()
+    assignments["image_id"] = assignments["image_id"].astype(str)
+    assignments["fold_id"] = assignments["fold_id"].astype(int)
+
+    pool_df = pool_df.copy()
+    pool_df["image_id"] = pool_df["image_id"].astype(str)
+    pool_df = pool_df.merge(assignments, on="image_id", how="left", validate="many_to_one")
+    if pool_df["fold_id"].isna().any():
+        raise RuntimeError("train_pool rows missing fold_id from fold_assignments.parquet")
+    return pool_df.reset_index(drop=True)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     cfg = load_cfg(pathlib.Path(args.config).resolve())
     dataset_dir = pathlib.Path(args.dataset_dir).expanduser().resolve()
-    train_path = dataset_dir / "train.parquet"
-    pool_df = dataframe_from_split(train_path, args.smoke)
-    if pool_df.empty:
-        raise RuntimeError("train.parquet is empty after filtering")
+    pool_df = load_train_pool_with_folds(dataset_dir=dataset_dir, smoke=args.smoke)
 
     effective = cfg
     if args.smoke:
@@ -101,7 +112,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     device = pick_device(effective.device)
     pool_df = pool_df.copy()
-    pool_df["fold_id"] = pool_df["group_id"].astype(str).map(lambda value: stable_fold_id(value, args.folds))
+    fold_ids = sorted(pool_df["fold_id"].dropna().astype(int).unique().tolist())
+    if not fold_ids:
+        raise RuntimeError("No fold assignments found in train_pool.parquet")
 
     fold_rows: list[dict[str, Any]] = []
     aggregate_confusions = {
@@ -116,7 +129,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not old_model_checkpoint.exists():
         raise FileNotFoundError(old_model_checkpoint)
 
-    for fold_idx in range(args.folds):
+    for fold_idx in fold_ids:
         fold_train = pool_df[pool_df["fold_id"] != fold_idx].drop(columns=["fold_id"]).reset_index(drop=True)
         fold_eval = pool_df[pool_df["fold_id"] == fold_idx].drop(columns=["fold_id"]).reset_index(drop=True)
         if fold_train.empty or fold_eval.empty:
@@ -124,7 +137,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         print(
             "cv_fold_start "
-            f"fold={fold_idx + 1}/{args.folds} "
+            f"fold={fold_idx + 1}/{len(fold_ids)} "
             f"train_rows={len(fold_train)} "
             f"eval_rows={len(fold_eval)}",
             flush=True,
@@ -211,7 +224,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "dataset_version": dataset_dir.name,
         "schema_version": args.schema_version,
-        "folds": args.folds,
+        "folds": len(fold_ids),
         "device": str(device),
         "pretrained": not args.no_pretrained,
         "weighted_sampling": not args.no_weighted_sampling,

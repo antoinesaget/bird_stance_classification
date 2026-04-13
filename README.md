@@ -19,10 +19,10 @@ README.md
 ## What Still Exists
 
 - `shared/birdsys_core`: shared label taxonomies, shared model definitions, and Model B artifact loading helpers
-- `projects/datasets`: Label Studio export normalization, crop generation, and versioned dataset building
+- `projects/datasets`: Label Studio export normalization, stable split building, named crop artifacts, and pooled dataset building
 - `projects/labelstudio`: Label Studio API workflows, the versioned annotation extraction command, task batch generation, prediction prefill, and TrueNAS deployment assets
 - `projects/ml_backend`: FastAPI prediction service, model promotion helper, Dockerfile, and `iats` deployment assets
-- `projects/ml_experiments`: Model B training, grouped CV, offline evaluation, and the remaining experiment config
+- `projects/ml_experiments`: Model B training on `train_pool` / `all_data`, grouped CV from stored folds, offline evaluation, and the remaining experiment config
 - focused extraction tests under `projects/datasets/tests` and `projects/labelstudio/tests`
 
 ## What No Longer Exists

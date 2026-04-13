@@ -12,6 +12,7 @@ class ProjectLayout:
     metadata: Path
     labelstudio_exports: Path
     labelstudio_normalized: Path
+    derived_splits: Path
     derived_crops: Path
     derived_datasets: Path
     models_detector: Path
@@ -27,6 +28,7 @@ def build_layout(data_root: Path) -> ProjectLayout:
         metadata=root / "metadata",
         labelstudio_exports=root / "labelstudio" / "exports",
         labelstudio_normalized=root / "labelstudio" / "normalized",
+        derived_splits=root / "derived" / "splits",
         derived_crops=root / "derived" / "crops",
         derived_datasets=root / "derived" / "datasets",
         models_detector=root / "models" / "detector",
@@ -43,6 +45,7 @@ def ensure_layout(data_root: Path) -> ProjectLayout:
         layout.metadata,
         layout.labelstudio_exports,
         layout.labelstudio_normalized,
+        layout.derived_splits,
         layout.derived_crops,
         layout.derived_datasets,
         layout.models_detector,

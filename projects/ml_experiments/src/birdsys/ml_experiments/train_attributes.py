@@ -141,12 +141,12 @@ class BirdAttributeDataset(Dataset):
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train Model B multi-head bird attribute classifier")
-    parser.add_argument("--dataset-dir", required=True, help="Path to ds_vXXX with split parquet files")
+    parser.add_argument("--dataset-dir", required=True, help="Path to ds_vXXX with train_pool/test/all_data parquet files")
     parser.add_argument("--config", default=str(PROJECT_ROOT / "config" / "train_attributes.yaml"))
     parser.add_argument("--data-root", default=os.getenv("BIRDS_DATA_ROOT", "/data/birds_project"))
     parser.add_argument("--output-dir", default="", help="Optional explicit output dir")
-    parser.add_argument("--train-split", default="train", choices=["train", "val", "test"])
-    parser.add_argument("--eval-split", default="val", choices=["train", "val", "test", "none"])
+    parser.add_argument("--train-split", default="train_pool", choices=["train_pool", "test", "all_data"])
+    parser.add_argument("--eval-split", default="none", choices=["train_pool", "test", "all_data", "none"])
     parser.add_argument("--schema-version", default="annotation_schema_v2")
     parser.add_argument("--smoke", action="store_true", help="Use tiny subset and 1 epoch")
     parser.add_argument("--no-pretrained", action="store_true", help="Disable pretrained backbone weights")
