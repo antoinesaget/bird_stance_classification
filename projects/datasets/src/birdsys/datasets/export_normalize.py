@@ -568,6 +568,33 @@ def label_counts(frame) -> dict[str, dict[str, int]]:
     return {field: counts_by_value(frame, field) for field in LABEL_FIELDS}
 
 
+def applicability_counts(frame) -> dict[str, int]:
+    if frame.empty:
+        return {
+            "all_regions": 0,
+            "isbird_yes": 0,
+            "visibility_usable": 0,
+            "species_usable": 0,
+            "behavior_labeled": 0,
+            "substrate_labeled": 0,
+            "stance_labeled": 0,
+        }
+
+    isbird_yes = frame["isbird"] == "yes"
+    visibility_usable = isbird_yes & frame["readability"].isin(["readable", "occluded"])
+    species_usable = visibility_usable & frame["specie"].isin(["correct", "unsure"])
+
+    return {
+        "all_regions": int(len(frame)),
+        "isbird_yes": int(isbird_yes.sum()),
+        "visibility_usable": int(visibility_usable.sum()),
+        "species_usable": int(species_usable.sum()),
+        "behavior_labeled": int(frame["behavior"].notna().sum()),
+        "substrate_labeled": int(frame["substrate"].notna().sum()),
+        "stance_labeled": int(frame["stance"].notna().sum()),
+    }
+
+
 def current_extract_payload(
     *,
     annotation_version: str,
@@ -608,6 +635,7 @@ def current_extract_payload(
         "counts": counts,
         "field_counts": label_counts(birds_df) if not birds_df.empty else {field: {} for field in LABEL_FIELDS},
         "null_counts": null_counts,
+        "applicability_counts": applicability_counts(birds_df),
     }
 
 
@@ -740,6 +768,32 @@ def save_plot(fig, base_path: pathlib.Path) -> dict[str, str]:
     return {"png": png_path.name, "svg": svg_path.name}
 
 
+def annotate_bars(ax, bars, texts: list[str], *, padding: float = 3.0) -> None:
+    for bar, text in zip(bars, texts):
+        height = bar.get_height()
+        baseline = max(height, 0)
+        ax.annotate(
+            text,
+            xy=(bar.get_x() + bar.get_width() / 2.0, baseline),
+            xytext=(0, padding),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+            color="#222222",
+        )
+
+
+def format_count(count: int) -> str:
+    return f"{count:,}"
+
+
+def format_count_and_pct(count: int, total: int) -> str:
+    if total <= 0:
+        return format_count(count)
+    return f"{count:,}\n{(count / total) * 100:.1f}%"
+
+
 def render_current_plots(*, plots_dir: pathlib.Path, current_payload: dict[str, Any]) -> dict[str, dict[str, str]]:
     plt = import_pyplot()
     plots_dir.mkdir(parents=True, exist_ok=True)
@@ -755,7 +809,8 @@ def render_current_plots(*, plots_dir: pathlib.Path, current_payload: dict[str, 
         "images_usable_true",
         "images_usable_false",
     ]
-    ax.bar(range(len(keys)), [counts[key] for key in keys], color="#2F6B8A")
+    values = [counts[key] for key in keys]
+    bars = ax.bar(range(len(keys)), values, color="#2F6B8A")
     ax.set_xticks(range(len(keys)))
     ax.set_xticklabels(
         ["raw tasks", "annotated tasks", "images", "birds", "usable images", "non-usable images"],
@@ -764,17 +819,30 @@ def render_current_plots(*, plots_dir: pathlib.Path, current_payload: dict[str, 
     )
     ax.set_ylabel("count")
     ax.set_title("Current Extract Summary")
+    annotate_bars(ax, bars, [format_count(value) for value in values])
     out["current_extract_summary"] = save_plot(fig, plots_dir / "current_extract_summary")
     plt.close(fig)
 
-    null_counts = current_payload["null_counts"]
-    fig, ax = plt.subplots(figsize=(8, 4.5))
-    labels = list(null_counts)
-    ax.bar(range(len(labels)), [null_counts[label] for label in labels], color="#C66B3D")
+    stage_counts = current_payload["applicability_counts"]
+    stage_order = [
+        ("all_regions", "all regions"),
+        ("isbird_yes", "is bird"),
+        ("visibility_usable", "readable/occluded"),
+        ("species_usable", "species usable"),
+        ("behavior_labeled", "behavior labeled"),
+        ("substrate_labeled", "substrate labeled"),
+        ("stance_labeled", "stance labeled"),
+    ]
+    total_regions = max(stage_counts["all_regions"], 1)
+    fig, ax = plt.subplots(figsize=(10.5, 5.0))
+    labels = [label for _, label in stage_order]
+    values = [stage_counts[key] for key, _ in stage_order]
+    bars = ax.bar(range(len(labels)), values, color="#C66B3D")
     ax.set_xticks(range(len(labels)))
     ax.set_xticklabels(labels, rotation=20, ha="right")
-    ax.set_ylabel("null rows")
-    ax.set_title("Null / Inapplicable Counts")
+    ax.set_ylabel("birds / regions")
+    ax.set_title("Applicability Funnel")
+    annotate_bars(ax, bars, [format_count_and_pct(value, total_regions) for value in values], padding=4.0)
     out["current_null_counts"] = save_plot(fig, plots_dir / "current_null_counts")
     plt.close(fig)
 
@@ -787,10 +855,13 @@ def render_current_plots(*, plots_dir: pathlib.Path, current_payload: dict[str, 
             ax.set_axis_off()
             continue
         labels = list(counts_map)
-        ax.bar(range(len(labels)), [counts_map[label] for label in labels], color="#478A6E")
+        values = [counts_map[label] for label in labels]
+        bars = ax.bar(range(len(labels)), values, color="#478A6E")
         ax.set_xticks(range(len(labels)))
         ax.set_xticklabels(labels, rotation=35, ha="right")
-        ax.set_title(field)
+        total = sum(values)
+        annotate_bars(ax, bars, [format_count_and_pct(value, total) for value in values], padding=3.0)
+        ax.set_title(f"{field} (n={total:,})")
     fig.suptitle("Current Label Distributions", y=1.02)
     out["current_label_distributions"] = save_plot(fig, plots_dir / "current_label_distributions")
     plt.close(fig)
@@ -887,7 +958,7 @@ def write_extract_report_md(
         "",
     ]
     lines.extend(embed_plot_block("Current Extract Summary", "current_extract_summary", plot_files))
-    lines.extend(embed_plot_block("Null / Inapplicable Counts", "current_null_counts", plot_files))
+    lines.extend(embed_plot_block("Applicability Funnel", "current_null_counts", plot_files))
     lines.extend(embed_plot_block("Current Label Distributions", "current_label_distributions", plot_files))
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
