@@ -100,7 +100,14 @@ def match_manifest_row(task: dict[str, Any], *, manifest_index: dict[str, dict[s
 
 
 def build_updated_task_payload(task: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
+    current_data = dict(task.get("data") or {})
     current_meta = dict(task.get("meta") or {})
+    updated_data = {
+        **current_data,
+        "image": f"/data/local-files/?d={row['served_localfiles_relative_path']}",
+        "image_id": row["image_id"],
+        "source_filename": row["source_filename"],
+    }
     updated_meta = {
         **current_meta,
         "species_slug": row["species_slug"],
@@ -108,7 +115,7 @@ def build_updated_task_payload(task: dict[str, Any], row: dict[str, Any]) -> dic
         "original_relative_path": row["original_relative_path"],
         "served_relative_path": row["served_relative_path"],
     }
-    return {"meta": updated_meta}
+    return {"data": updated_data, "meta": updated_meta}
 
 
 def main(argv: list[str] | None = None) -> int:
