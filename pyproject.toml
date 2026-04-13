@@ -33,22 +33,15 @@ dependencies = [
 dev = ["ruff>=0.9,<1"]
 
 [project.scripts]
-birdsys = "birdsys.cli.main:main"
+birdsys = "birdsys_workspace.cli:main"
 
 [tool.setuptools.packages.find]
-where = [
-  "ops/src",
-  "projects/labelstudio/src",
-  "projects/datasets/src",
-  "projects/ml_backend/src",
-  "projects/ml_experiments/src",
-  "shared/birdsys_core/src",
-]
-include = ["birdsys*"]
-namespaces = true
+where = ["workspace_bootstrap/src"]
+include = ["birdsys_workspace*"]
 
 [tool.pytest.ini_options]
 pythonpath = [
+  "workspace_bootstrap/src",
   "ops/src",
   "shared/birdsys_core/src",
   "projects/labelstudio/src",
