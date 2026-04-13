@@ -13,6 +13,10 @@
 !.env.example
 deploy/env/*.env
 !deploy/env/*.example
+ops/env/*.env
+!ops/env/*.example
+projects/*/deploy/env/*.env
+!projects/*/deploy/env/*.example
 
 # Python bytecode and caches
 __pycache__/

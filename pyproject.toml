@@ -3,9 +3,9 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "birdsys"
-version = "0.1.0"
-description = "Bird annotation and classification system"
+name = "birdsys-workspace"
+version = "0.2.0"
+description = "BirdSys monorepo workspace"
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
 authors = [{ name = "BirdSys" }]
@@ -32,12 +32,36 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["ruff>=0.9,<1"]
 
-[tool.setuptools]
-package-dir = {"" = "src"}
+[project.scripts]
+birdsys = "birdsys.cli.main:main"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = [
+  "ops/src",
+  "projects/labelstudio/src",
+  "projects/datasets/src",
+  "projects/ml_backend/src",
+  "projects/ml_experiments/src",
+  "shared/birdsys_core/src",
+]
+include = ["birdsys*"]
+namespaces = true
 
 [tool.pytest.ini_options]
-pythonpath = ["src", "."]
-testpaths = ["tests"]
+pythonpath = [
+  "ops/src",
+  "shared/birdsys_core/src",
+  "projects/labelstudio/src",
+  "projects/datasets/src",
+  "projects/ml_backend/src",
+  "projects/ml_experiments/src",
+  ".",
+]
+testpaths = [
+  "tests",
+  "projects/labelstudio/tests",
+  "projects/datasets/tests",
+  "projects/ml_backend/tests",
+  "projects/ml_experiments/tests",
+  "shared/birdsys_core/tests",
+]

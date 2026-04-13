@@ -2,9 +2,9 @@
 
 This repo has three deployment surfaces:
 
-- `deploy/docker-compose.local.yml`
-- `deploy/docker-compose.iats-ml.yml`
-- `deploy/docker-compose.truenas.yml`
+- `ops/compose/docker-compose.local.yml`
+- `projects/ml_backend/deploy/docker-compose.iats-ml.yml`
+- `projects/labelstudio/deploy/docker-compose.truenas.yml`
 
 The live branch is `main`. The Makefile already defaults `DEPLOY_BRANCH` to `main`, so only pass it explicitly for temporary branch rollouts.
 
@@ -23,19 +23,19 @@ The live branch is `main`. The Makefile already defaults `DEPLOY_BRANCH` to `mai
 
 ## Required Env Files
 
-- local: `deploy/env/local.env`
-- `iats`: `deploy/env/iats.env`
-- TrueNAS: `deploy/env/truenas.env`
+- local: `ops/env/local.env`
+- `iats`: `projects/ml_backend/deploy/env/iats.env`
+- TrueNAS: `projects/labelstudio/deploy/env/truenas.env`
 
 Critical values:
 
-- `deploy/env/iats.env`
-  - `BIRDS_DATA_ROOT=/home/antoine/bird_stance_classification/data/birds_project`
-  - `LINES_DATA_ROOT=/home/antoine/bird_stance_classification/data/lines_project`
+- `projects/ml_backend/deploy/env/iats.env`
+  - `BIRDS_DATA_ROOT=/data/birds_project`
+  - `LINES_DATA_ROOT=/data/lines_project`
   - `MODEL_A_DEVICE=0`
   - `MODEL_A_BOOTSTRAP_WEIGHTS`
   - `MODEL_A_SERVING_WEIGHTS`
-- `deploy/env/truenas.env`
+- `projects/labelstudio/deploy/env/truenas.env`
   - `TRUENAS_APP_ID=bird-stance-classification`
   - `BIRDS_DATA_ROOT=/mnt/tank/media/birds_project`
   - `LINES_DATA_ROOT=/mnt/tank/media/lines_project`
@@ -62,7 +62,7 @@ Behavior:
 make truenas-deploy-ui
 ```
 
-This re-renders `deploy/docker-compose.truenas.yml` and updates the existing `bird-stance-classification` app while preserving persistent state mounts.
+This re-renders `projects/labelstudio/deploy/docker-compose.truenas.yml` and updates the existing `bird-stance-classification` app while preserving persistent state mounts.
 
 ## Sync Data And Exports To `iats`
 
@@ -88,19 +88,19 @@ The sync path is intentionally one-way for canonical inputs:
 Cross-validation:
 
 ```bash
-make iats-train-attributes-cv DATASET_DIR=/home/antoine/bird_stance_classification/data/birds_project/derived/datasets/ds_v001
+make iats-train-attributes-cv DATASET_DIR=/data/birds_project/derived/datasets/ds_v001
 ```
 
 Final training:
 
 ```bash
-make iats-train-attributes-final DATASET_DIR=/home/antoine/bird_stance_classification/data/birds_project/derived/datasets/ds_v001
+make iats-train-attributes-final DATASET_DIR=/data/birds_project/derived/datasets/ds_v001
 ```
 
 Promote and deploy the final checkpoint:
 
 ```bash
-make iats-deploy-model-b MODEL_B_SOURCE=/home/antoine/bird_stance_classification/data/birds_project/models/attributes/convnextv2s_v001/checkpoint.pt PROMOTION_LABEL=ann_v002_legacy
+make iats-deploy-model-b MODEL_B_SOURCE=/data/birds_project/models/attributes/convnextv2s_v001/checkpoint.pt PROMOTION_LABEL=ann_v002_legacy
 ```
 
 Deploy or re-deploy the ML backend container itself:
@@ -142,4 +142,4 @@ Expected state:
 - TrueNAS app is healthy and [birds.ashs.live](https://birds.ashs.live/user/login/) loads
 - `iats` ML backend `/health` returns `status=UP`
 - project `7` can reach the ML backend over `http://192.168.0.42:9090`
-- served model paths on `iats` resolve under `/home/antoine/bird_stance_classification/data/birds_project/models`
+- served model paths on `iats` resolve under `/data/birds_project/models`

@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "birdsys-labelstudio"
+version = "0.1.0"
+description = "BirdSys Label Studio workflows"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+  "pillow>=10,<12",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["birdsys.labelstudio*"]
+namespaces = true

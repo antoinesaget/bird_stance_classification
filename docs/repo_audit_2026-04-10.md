@@ -1,5 +1,7 @@
 # Repo Audit 2026-04-10
 
+This document captures the repo state before the four-subproject monorepo cutover. References to `scripts/`, `services/ml_backend/`, `src/birdsys/`, `deploy/`, and `sandbox_templates/` are historical unless they were later moved into `projects/`, `shared/`, or `ops/`.
+
 ## Snapshot
 
 - Local smoke tests pass from the checked-in virtualenv: `.venv/bin/pytest -q tests/smoke`

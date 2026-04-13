@@ -1,9 +1,9 @@
 # Annotation Schema: Current vs `updates.md`
 
-This document compiles the free-form change requests in [updates.md](/Users/antoine/truenas_migration/bird_stance_classification/updates.md) against the actual current Label Studio schema in [labelstudio/label_config.xml](/Users/antoine/truenas_migration/bird_stance_classification/labelstudio/label_config.xml).
+This document compiles the free-form change requests in [updates.md](/Users/antoine/truenas_migration/bird_stance_classification/updates.md) against the actual current Label Studio schema in [projects/labelstudio/label_config.xml](/Users/antoine/truenas_migration/bird_stance_classification/projects/labelstudio/label_config.xml).
 
 Important:
-- "Current schema" below means the live-style Label Studio config in `labelstudio/label_config.xml`.
+- "Current schema" below means the live-style Label Studio config in `projects/labelstudio/label_config.xml`.
 - It does **not** mean the broader future-state spec in [SPECIFICATION_v2.md](/Users/antoine/truenas_migration/bird_stance_classification/SPECIFICATION_v2.md).
 - There is already one drift today: `SPECIFICATION_v2.md` mentions `legs=sitting`, but the current Label Studio config does not expose that choice.
 
@@ -206,8 +206,8 @@ Cleaner long-term path:
 ## Recommended Next Repo Changes
 
 1. Freeze the intended updated taxonomy in a single authoritative file.
-2. Update `labelstudio/label_config.xml` to the decided target taxonomy.
-3. Update `scripts/export_normalize.py` to accept both old and new label aliases.
+2. Update `projects/labelstudio/label_config.xml` to the decided target taxonomy.
+3. Update `projects/datasets/src/birdsys/datasets/export_normalize.py` to accept both old and new label aliases.
 4. Add tests for:
 - old export -> old normalization
 - new export -> new normalization

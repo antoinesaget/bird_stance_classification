@@ -24,10 +24,11 @@
 ### `iats`
 
 - Repo checkout: `/home/antoine/bird_stance_classification`
-- Bird training root: `/home/antoine/bird_stance_classification/data/birds_project`
-- Lines mirror root: `/home/antoine/bird_stance_classification/data/lines_project`
-- Served detector slot: `/home/antoine/bird_stance_classification/data/birds_project/models/detector/served/model_a/current/weights.pt`
-- Served attribute slot: `/home/antoine/bird_stance_classification/data/birds_project/models/attributes/served/model_b/current/checkpoint.pt`
+- Canonical training/data root: `/data/birds_project`
+- Lines mirror root: `/data/lines_project`
+- Repo-local `data/` is not authoritative on `iats`
+- Served detector slot: `/data/birds_project/models/detector/served/model_a/current/weights.pt`
+- Served attribute slot: `/data/birds_project/models/attributes/served/model_b/current/checkpoint.pt`
 
 ### TrueNAS
 
@@ -40,9 +41,9 @@
 
 ## Tracked Env Templates
 
-- `deploy/env/local.env.example`
-- `deploy/env/iats.env.example`
-- `deploy/env/truenas.env.example`
+- `ops/env/local.env.example`
+- `projects/ml_backend/deploy/env/iats.env.example`
+- `projects/labelstudio/deploy/env/truenas.env.example`
 
 The managed scripts expect untracked env files with the same names minus `.example`.
 
@@ -75,7 +76,7 @@ Under `birds_project` on `iats`:
 
 Archived non-live model artifacts should go under:
 
-- `/home/antoine/bird_stance_classification/data/birds_project/models/archive/<date>/`
+- `/data/birds_project/models/archive/<date>/`
 
 On TrueNAS for `lines_project`:
 

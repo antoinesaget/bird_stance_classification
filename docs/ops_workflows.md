@@ -32,19 +32,19 @@ make iats-sync-data
 Run attribute-model CV:
 
 ```bash
-make iats-train-attributes-cv DATASET_DIR=/home/antoine/bird_stance_classification/data/birds_project/derived/datasets/ds_v001
+make iats-train-attributes-cv DATASET_DIR=/data/birds_project/derived/datasets/ds_v001
 ```
 
 Run final attribute training:
 
 ```bash
-make iats-train-attributes-final DATASET_DIR=/home/antoine/bird_stance_classification/data/birds_project/derived/datasets/ds_v001
+make iats-train-attributes-final DATASET_DIR=/data/birds_project/derived/datasets/ds_v001
 ```
 
 Deploy the trained Model B checkpoint:
 
 ```bash
-make iats-deploy-model-b MODEL_B_SOURCE=/home/antoine/bird_stance_classification/data/birds_project/models/attributes/convnextv2s_v001/checkpoint.pt PROMOTION_LABEL=ann_v002_legacy
+make iats-deploy-model-b MODEL_B_SOURCE=/data/birds_project/models/attributes/convnextv2s_v001/checkpoint.pt PROMOTION_LABEL=ann_v002_legacy
 ```
 
 ## 3) TrueNAS Frontend Deploy Flow
@@ -131,17 +131,17 @@ ssh truenas 'midclt call app.get_instance bird-stance-classification'
 - Project `7` prediction coverage:
 
 ```bash
-ssh truenas 'cd /mnt/apps/code/bird_stance_classification && python3 - <<'"'"'\"'\"'PY'\"'\"'\nfrom pathlib import Path\nfrom scripts.export_labelstudio_snapshot import resolve_api_token, request_json\nbase_url=\"http://127.0.0.1:30280\"\napi_token=\"\"\nfor line in Path(\"deploy/env/truenas.env\").read_text().splitlines():\n    if line.startswith(\"LABEL_STUDIO_API_TOKEN=\"):\n        api_token=line.split(\"=\",1)[1].strip(); break\nresolved=resolve_api_token(base_url, api_token)\nprint(request_json(base_url, \"/api/tasks?project=7&page_size=1\", resolved)[\"total_predictions\"])\nPY'
+ssh truenas 'cd /mnt/apps/code/bird_stance_classification && PYTHONPATH="ops/src:shared/birdsys_core/src:projects/labelstudio/src" python3 - <<'"'"'\"'\"'PY'\"'\"'\nfrom pathlib import Path\nfrom birdsys.labelstudio.export_snapshot import resolve_api_token, request_json\nbase_url = \"http://127.0.0.1:30280\"\napi_token = \"\"\nfor line in Path(\"projects/labelstudio/deploy/env/truenas.env\").read_text().splitlines():\n    if line.startswith(\"LABEL_STUDIO_API_TOKEN=\"):\n        api_token = line.split(\"=\", 1)[1].strip()\n        break\nresolved = resolve_api_token(base_url, api_token)\nprint(request_json(base_url, \"/api/tasks?project=7&page_size=1\", resolved)[\"total_predictions\"])\nPY'
 ```
 
 - Project `7` annotation and untouched-task counts:
 
 ```bash
-ssh truenas 'cd /mnt/apps/code/bird_stance_classification && python3 - <<'"'"'\"'\"'PY'\"'\"'\nfrom pathlib import Path\nfrom scripts.export_labelstudio_snapshot import resolve_api_token, request_json\nbase_url=\"http://127.0.0.1:30280\"\napi_token=\"\"\nfor line in Path(\"deploy/env/truenas.env\").read_text().splitlines():\n    if line.startswith(\"LABEL_STUDIO_API_TOKEN=\"):\n        api_token=line.split(\"=\",1)[1].strip(); break\nresolved=resolve_api_token(base_url, api_token)\npage=1\npage_size=200\nannotated=0\nuntouched=0\nwhile True:\n    payload=request_json(base_url, f\"/api/tasks?project=7&page={page}&page_size={page_size}\", resolved)\n    tasks=payload.get(\"tasks\") or []\n    if not tasks:\n        break\n    for task in tasks:\n        drafts=len(task.get(\"drafts\") or [])\n        if int(task.get(\"total_annotations\") or 0) > 0 or bool(task.get(\"is_labeled\")):\n            annotated += 1\n        elif drafts == 0:\n            untouched += 1\n    total=int(payload.get(\"total\") or 0)\n    if page * page_size >= total:\n        break\n    page += 1\nprint({\"annotated\": annotated, \"untouched\": untouched})\nPY'
+ssh truenas 'cd /mnt/apps/code/bird_stance_classification && PYTHONPATH="ops/src:shared/birdsys_core/src:projects/labelstudio/src" python3 - <<'"'"'\"'\"'PY'\"'\"'\nfrom pathlib import Path\nfrom birdsys.labelstudio.export_snapshot import resolve_api_token, request_json\nbase_url = \"http://127.0.0.1:30280\"\napi_token = \"\"\nfor line in Path(\"projects/labelstudio/deploy/env/truenas.env\").read_text().splitlines():\n    if line.startswith(\"LABEL_STUDIO_API_TOKEN=\"):\n        api_token = line.split(\"=\", 1)[1].strip()\n        break\nresolved = resolve_api_token(base_url, api_token)\npage = 1\npage_size = 200\nannotated = 0\nuntouched = 0\nwhile True:\n    payload = request_json(base_url, f\"/api/tasks?project=7&page={page}&page_size={page_size}\", resolved)\n    tasks = payload.get(\"tasks\") or []\n    if not tasks:\n        break\n    for task in tasks:\n        drafts = len(task.get(\"drafts\") or [])\n        if int(task.get(\"total_annotations\") or 0) > 0 or bool(task.get(\"is_labeled\")):\n            annotated += 1\n        elif drafts == 0:\n            untouched += 1\n    total = int(payload.get(\"total\") or 0)\n    if page * page_size >= total:\n        break\n    page += 1\nprint({\"annotated\": annotated, \"untouched\": untouched})\nPY'
 ```
 
 - Sample refreshed tasks still have exactly one prediction row and a newer prediction timestamp:
 
 ```bash
-ssh truenas 'cd /mnt/apps/code/bird_stance_classification && python3 - <<'"'"'\"'\"'PY'\"'\"'\nfrom pathlib import Path\nfrom scripts.export_labelstudio_snapshot import resolve_api_token, request_json\nbase_url=\"http://127.0.0.1:30280\"\napi_token=\"\"\nrun_started_at=\"2026-03-31T00:00:00Z\"\nfor line in Path(\"deploy/env/truenas.env\").read_text().splitlines():\n    if line.startswith(\"LABEL_STUDIO_API_TOKEN=\"):\n        api_token=line.split(\"=\",1)[1].strip(); break\nresolved=resolve_api_token(base_url, api_token)\npayload=request_json(base_url, \"/api/tasks?project=7&page=1&page_size=100\", resolved)\nseen=0\nfor task in payload.get(\"tasks\") or []:\n    if int(task.get(\"total_annotations\") or 0) > 0:\n        continue\n    detail=request_json(base_url, f\"/api/tasks/{task['id']}\", resolved)\n    predictions=detail.get(\"predictions\") or []\n    if not predictions:\n        continue\n    latest=max(str(pred.get(\"updated_at\") or \"\") for pred in predictions)\n    print({\"task\": task[\"id\"], \"total_predictions\": detail.get(\"total_predictions\"), \"latest_prediction_updated_at\": latest, \"newer_than_run_start\": latest >= run_started_at})\n    seen += 1\n    if seen >= 5:\n        break\nPY'
+ssh truenas 'cd /mnt/apps/code/bird_stance_classification && PYTHONPATH="ops/src:shared/birdsys_core/src:projects/labelstudio/src" python3 - <<'"'"'\"'\"'PY'\"'\"'\nfrom pathlib import Path\nfrom birdsys.labelstudio.export_snapshot import resolve_api_token, request_json\nbase_url = \"http://127.0.0.1:30280\"\napi_token = \"\"\nrun_started_at = \"2026-03-31T00:00:00Z\"\nfor line in Path(\"projects/labelstudio/deploy/env/truenas.env\").read_text().splitlines():\n    if line.startswith(\"LABEL_STUDIO_API_TOKEN=\"):\n        api_token = line.split(\"=\", 1)[1].strip()\n        break\nresolved = resolve_api_token(base_url, api_token)\npayload = request_json(base_url, \"/api/tasks?project=7&page=1&page_size=100\", resolved)\nseen = 0\nfor task in payload.get(\"tasks\") or []:\n    if int(task.get(\"total_annotations\") or 0) > 0:\n        continue\n    detail = request_json(base_url, f\"/api/tasks/{task['id']}\", resolved)\n    predictions = detail.get(\"predictions\") or []\n    if not predictions:\n        continue\n    latest = max(str(pred.get(\"updated_at\") or \"\") for pred in predictions)\n    print({\"task\": task[\"id\"], \"total_predictions\": detail.get(\"total_predictions\"), \"latest_prediction_updated_at\": latest, \"newer_than_run_start\": latest >= run_started_at})\n    seen += 1\n    if seen >= 5:\n        break\nPY'
 ```

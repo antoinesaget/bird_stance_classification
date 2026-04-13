@@ -43,20 +43,21 @@ git rev-parse HEAD
 ## Live ML Backend On `iats`
 
 - Health endpoint: `http://127.0.0.1:9090/health`
+- Durable model/data root: `/data/birds_project`
 - Current state:
   - `status=UP`
   - `model_a_loaded=true`
   - `model_b_loaded=true`
   - `model_b_schema_version=annotation_schema_v2`
 - Detector:
-  - served weights: `/home/antoine/bird_stance_classification/data/birds_project/models/detector/served/model_a/current/weights.pt`
+  - served weights: `/data/birds_project/models/detector/served/model_a/current/weights.pt`
   - current release id: `20260325T081936Z`
-  - source: `/home/antoine/bird_stance_classification/yolo11m.pt`
+  - source: `/home/antoine/_archives/bird_stance_classification/2026-04-12/repo-root/weights/yolo11m.pt`
 - Attribute model:
-  - served checkpoint: `/home/antoine/bird_stance_classification/data/birds_project/models/attributes/served/model_b/current/checkpoint.pt`
-  - current release id: `20260325T153607Z`
-  - promoted from: `/home/antoine/bird_stance_classification/data/birds_project/models/attributes/convnextv2s_v001/checkpoint.pt`
-  - promotion label: `ann_v002_legacy`
+  - served checkpoint: `/data/birds_project/models/attributes/served/model_b/current/checkpoint.pt`
+  - current release id: `20260412T140932Z`
+  - promoted from: `/home/antoine/_archives/bird_stance_classification/2026-04-12/repo-root/.sandboxes/model_b_autoresearch_p7_v1/runs/20260326_150758_sampler-cap-2p5-v1/candidate/current_backend/checkpoint.pt`
+  - promotion label: `archive_recovery_20260326_150758`
 
 ## `lines_project` Batch State
 

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from services.ml_backend.app.predictors.model_a_yolo import Detection
-from services.ml_backend.app.predictors.model_b_attributes import AttributePrediction
-from services.ml_backend.app.response_contract import extract_predictions, format_predict_response
-from services.ml_backend.app.serializers import to_label_studio_prediction
+from birdsys.ml_backend.app.predictors.model_a_yolo import Detection
+from birdsys.ml_backend.app.predictors.model_b_attributes import AttributePrediction
+from birdsys.ml_backend.app.response_contract import extract_predictions, format_predict_response
+from birdsys.ml_backend.app.serializers import to_label_studio_prediction
 
 
 def test_serializer_shapes_prediction() -> None:
