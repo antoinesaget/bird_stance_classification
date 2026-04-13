@@ -76,5 +76,5 @@ model_compare_pairwise/
 .LSOverride
 
 ebd_scolop1_smp_relJan-2026/
-labelstudio_data/
-labelstudio_exports/
+labelstudio_data
+labelstudio_exports
