@@ -101,32 +101,41 @@ def write_metadata(metadata_out: str | None, metadata: dict) -> None:
     metadata_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    args = parse_args(argv)
-    output_path = Path(args.output).expanduser().resolve()
+def export_project_snapshot(
+    *,
+    base_url: str,
+    api_token: str,
+    project_id: int,
+    output: str | Path,
+    metadata_out: str | Path | None = None,
+    title: str = "",
+    download_all_tasks: bool = False,
+    timeout_seconds: int = 300,
+) -> dict:
+    output_path = Path(output).expanduser().resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    resolved_token = resolve_api_token(args.base_url, args.api_token)
+    metadata_path = None if metadata_out is None else Path(metadata_out).expanduser().resolve()
+    resolved_token = resolve_api_token(base_url, api_token)
 
-    if args.download_all_tasks:
+    if download_all_tasks:
         query = urllib.parse.urlencode({"exportType": "JSON", "download_all_tasks": "true"})
-        payload = download_bytes(args.base_url, f"/api/projects/{args.project_id}/export?{query}", resolved_token)
+        payload = download_bytes(base_url, f"/api/projects/{project_id}/export?{query}", resolved_token)
         output_path.write_bytes(payload)
         metadata = {
-            "project_id": args.project_id,
+            "project_id": project_id,
             "mode": "direct",
-            "base_url": args.base_url,
+            "base_url": base_url,
             "output": str(output_path),
         }
-        write_metadata(args.metadata_out, metadata)
-        print(str(output_path))
-        return 0
+        write_metadata(str(metadata_path) if metadata_path is not None else None, metadata)
+        return metadata
 
     create_payload = {}
-    if args.title:
-        create_payload["title"] = args.title
+    if title:
+        create_payload["title"] = title
     snapshot = request_json(
-        args.base_url,
-        f"/api/projects/{args.project_id}/exports/",
+        base_url,
+        f"/api/projects/{project_id}/exports/",
         resolved_token,
         method="POST",
         payload=create_payload,
@@ -136,36 +145,51 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise RuntimeError("Label Studio export creation returned no snapshot id")
 
     started = time.monotonic()
-    current = request_json(args.base_url, f"/api/projects/{args.project_id}/exports/{snapshot_id}", resolved_token)
+    current = request_json(base_url, f"/api/projects/{project_id}/exports/{snapshot_id}", resolved_token)
     while current.get("status") not in {"completed", "failed"}:
-        if time.monotonic() - started > args.timeout_seconds:
+        if time.monotonic() - started > timeout_seconds:
             raise TimeoutError(f"Timed out waiting for snapshot {snapshot_id}")
         time.sleep(5)
-        current = request_json(args.base_url, f"/api/projects/{args.project_id}/exports/{snapshot_id}", resolved_token)
+        current = request_json(base_url, f"/api/projects/{project_id}/exports/{snapshot_id}", resolved_token)
 
     if current.get("status") != "completed":
         raise RuntimeError(f"Snapshot {snapshot_id} finished with status {current.get('status')!r}")
 
     query = urllib.parse.urlencode({"exportType": "JSON"})
     payload = download_bytes(
-        args.base_url,
-        f"/api/projects/{args.project_id}/exports/{snapshot_id}/download?{query}",
+        base_url,
+        f"/api/projects/{project_id}/exports/{snapshot_id}/download?{query}",
         resolved_token,
     )
     output_path.write_bytes(payload)
     metadata = {
-        "project_id": args.project_id,
+        "project_id": project_id,
         "mode": "snapshot",
         "snapshot_id": snapshot_id,
         "status": current.get("status"),
         "created_at": current.get("created_at"),
         "finished_at": current.get("finished_at"),
-        "title": current.get("title") or args.title or None,
-        "base_url": args.base_url,
+        "title": current.get("title") or title or None,
+        "base_url": base_url,
         "output": str(output_path),
     }
-    write_metadata(args.metadata_out, metadata)
-    print(str(output_path))
+    write_metadata(str(metadata_path) if metadata_path is not None else None, metadata)
+    return metadata
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
+    export_project_snapshot(
+        base_url=args.base_url,
+        api_token=args.api_token,
+        project_id=args.project_id,
+        output=args.output,
+        metadata_out=args.metadata_out,
+        title=args.title,
+        download_all_tasks=args.download_all_tasks,
+        timeout_seconds=args.timeout_seconds,
+    )
+    print(str(Path(args.output).expanduser().resolve()))
     return 0
 
 

@@ -4,7 +4,7 @@ This subproject owns the offline data-prep path from Label Studio export to mode
 
 ## Surviving Entry Points
 
-- `src/birdsys/datasets/export_normalize.py`: normalize a Label Studio export JSON into deterministic parquet tables
+- `src/birdsys/datasets/export_normalize.py`: strict current-schema normalization, comparison to previous extract, and Markdown/plot report generation
 - `src/birdsys/datasets/make_crops.py`: generate JPEG crops from normalized bird boxes
 - `src/birdsys/datasets/build_dataset.py`: build a versioned `train` / `val` / `test` dataset directory and report files
 - `sql/build_dataset_duckdb.sql`: remaining SQL reference asset
@@ -12,7 +12,7 @@ This subproject owns the offline data-prep path from Label Studio export to mode
 ## Current Shape
 
 - There is no `cli.py` wrapper anymore.
-- There are no tests in the current checkout.
+- Focused extraction regression tests now live under `tests/integration`.
 - The package metadata remains in `pyproject.toml`, but the practical surface is just the three scripts above.
 
 ## Data Contract
@@ -22,6 +22,6 @@ This subproject owns the offline data-prep path from Label Studio export to mode
 
 ## Current Status
 
-- All three surviving entrypoints import `birdsys.core`.
-- Because the shared core package still references deleted modules, this subproject is not currently runnable.
-- The code here still describes the intended normalization, crop, and dataset-build flow, but the shared-core path/helpers need to be restored before it works again.
+- The strict annotation normalizer now writes versioned `ann_vNNN` outputs with `birds.parquet`, `images_labels.parquet`, `manifest.json`, JSON reports, Markdown reports, and embedded plots.
+- Comparison to the previous extract is now first-class in the normalization output.
+- The next dataset-building step can consume the normalized `ann_vNNN` output directly.

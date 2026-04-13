@@ -9,8 +9,14 @@ version = "0.1.0"
 description = "BirdSys Label Studio workflows"
 requires-python = ">=3.11,<3.12"
 dependencies = [
+  "matplotlib>=3.9,<4",
+  "pandas>=2.2,<3",
   "pillow>=10,<12",
+  "pyarrow>=18,<20",
 ]
+
+[project.scripts]
+birdsys-labelstudio-extract-annotations = "birdsys.labelstudio.extract_annotations:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

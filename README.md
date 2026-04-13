@@ -20,9 +20,10 @@ README.md
 
 - `shared/birdsys_core`: shared label taxonomies, shared model definitions, and Model B artifact loading helpers
 - `projects/datasets`: Label Studio export normalization, crop generation, and versioned dataset building
-- `projects/labelstudio`: Label Studio API workflows, task batch generation, prediction prefill, and TrueNAS deployment assets
+- `projects/labelstudio`: Label Studio API workflows, the versioned annotation extraction command, task batch generation, prediction prefill, and TrueNAS deployment assets
 - `projects/ml_backend`: FastAPI prediction service, model promotion helper, Dockerfile, and `iats` deployment assets
 - `projects/ml_experiments`: Model B training, grouped CV, offline evaluation, and the remaining experiment config
+- focused extraction tests under `projects/datasets/tests` and `projects/labelstudio/tests`
 
 ## What No Longer Exists
 
@@ -31,7 +32,6 @@ README.md
 - No `ops/` workspace orchestration layer
 - No repo-wide CLI wrapper
 - No split `ENVIRONMENT.md` / `DEPLOYMENT.md` docs anymore
-- No test tree in the current checkout
 - No autoresearch sandbox templates in `projects/ml_experiments`
 
 ## Host Roles
@@ -53,8 +53,8 @@ README.md
 
 - The surviving code is mostly plain Python modules and scripts under `projects/*/src`.
 - The host uses `python3`; `python` is not available on `PATH`.
-- `projects/labelstudio/src/birdsys/labelstudio/export_snapshot.py` still imports cleanly from the remaining tree.
-- `shared/birdsys_core/src/birdsys/core/__init__.py` still imports deleted modules: `config.py`, `contracts.py`, `logging.py`, `paths.py`, and `reporting.py`.
-- Any entrypoint that imports `birdsys.core` currently fails with `ModuleNotFoundError: No module named 'birdsys.core.config'`.
+- `birdsys.core` now exposes the minimal shared surface needed by extraction and dataset creation.
+- The canonical annotation extraction command is `birdsys.labelstudio.extract_annotations`.
+- The strict current-schema extraction path has been verified against live project `7` into a temporary data root.
 
 This README is meant to describe the repo exactly as it exists now, not the fully repaired state we still need to rebuild.

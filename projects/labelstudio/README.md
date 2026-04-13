@@ -4,6 +4,7 @@ This subproject contains the surviving Label Studio integration code and the Tru
 
 ## Surviving Entry Points
 
+- `src/birdsys/labelstudio/extract_annotations.py`: canonical end-to-end extraction command for versioned raw exports, strict normalization, comparison reports, and plots
 - `src/birdsys/labelstudio/export_snapshot.py`: create or download project exports from Label Studio
 - `src/birdsys/labelstudio/import_tasks.py`: import prepared task bundles into a project
 - `src/birdsys/labelstudio/create_project.py`: create or update a project from the repo label config and clone source project defaults
@@ -21,11 +22,12 @@ This subproject contains the surviving Label Studio integration code and the Tru
 
 - The old `cli.py` wrapper is gone.
 - The project is now a small collection of direct Python entrypoints plus deployment files.
-- The API-oriented scripts are the main remaining operational surface.
+- The API-oriented scripts plus the new extraction command are the main remaining operational surface.
 
 ## Current Status
 
 - `export_snapshot.py` still imports cleanly from the remaining package tree.
+- `extract_annotations.py` is now the intended operator surface for human-annotation extraction.
 - `create_project.py`, `import_tasks.py`, and `prefill_predictions.py` are built on that same remaining Label Studio surface.
-- `build_localfiles_batch.py` imports `birdsys.core.LabelStudioBatchSummary` and is currently blocked by the shared-core cleanup fallout.
+- `build_localfiles_batch.py` now works again with the restored minimal shared contracts/helpers.
 - TrueNAS deployment assets are still present and appear to be the intended production Label Studio surface.

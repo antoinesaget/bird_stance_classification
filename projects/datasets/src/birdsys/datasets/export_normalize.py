@@ -1,31 +1,58 @@
 #!/usr/bin/env python3
-"""Purpose: Normalize raw Label Studio export JSON into parquet tables used by the training loop."""
+"""Purpose: Normalize strict Label Studio exports into versioned BirdSys annotation tables."""
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import os
 import pathlib
 import urllib.parse
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any
+from xml.etree import ElementTree as ET
 
-from birdsys.core import ensure_layout
-from birdsys.core.attributes import (
-    BEHAVIOR_TO_ID,
-    STANCE_TO_ID,
-    SUBSTRATE_TO_ID,
-    normalize_behavior,
-    normalize_choice,
-    normalize_stance,
-    normalize_substrate,
-)
+from birdsys.core import ensure_layout, find_previous_version_dir
+from birdsys.core.attributes import normalize_choice
+
+
+CURRENT_SCHEMA_VERSION = "annotation_schema_v2"
+NORMALIZATION_POLICY_VERSION = "current_only_v1"
+LABEL_FIELDS = ["isbird", "readability", "specie", "behavior", "substrate", "stance"]
+BEHAVIOR_VALUES = {
+    "flying",
+    "moving",
+    "foraging",
+    "resting",
+    "backresting",
+    "bathing",
+    "calling",
+    "preening",
+    "display",
+    "breeding",
+    "other",
+    "unsure",
+}
+SUBSTRATE_VALUES = {"bare_ground", "vegetation", "water", "air", "unsure"}
+STANCE_VALUES = {"unipedal", "bipedal", "sitting", "unsure"}
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[5]
+DEFAULT_LABEL_CONFIG = REPO_ROOT / "projects" / "labelstudio" / "label_config.xml"
+
+
+@dataclass(frozen=True)
+class CurrentAnnotationSchema:
+    rectangle_from_name: str
+    rectangle_labels: frozenset[str]
+    choice_fields: dict[str, frozenset[str]]
 
 
 @dataclass
 class BirdRow:
     annotation_version: str
+    task_id: str
+    annotation_id: str
+    region_id: str
     image_id: str
     bird_id: str
     bbox_x: float
@@ -44,16 +71,90 @@ class BirdRow:
     stance: str | None
 
 
+@dataclass(frozen=True)
+class NormalizationResult:
+    annotation_version: str
+    out_dir: pathlib.Path
+    birds_out: pathlib.Path
+    images_out: pathlib.Path
+    manifest_out: pathlib.Path
+    extract_report_json: pathlib.Path
+    extract_report_md: pathlib.Path
+    comparison_json: pathlib.Path
+    comparison_md: pathlib.Path
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Normalize Label Studio export JSON into deterministic parquet")
-    parser.add_argument("--export-json", required=True, help="Path to ann_vXXX.json export")
+    parser = argparse.ArgumentParser(description="Normalize a strict Label Studio export into deterministic parquet")
+    parser.add_argument("--export-json", required=True, help="Path to the raw export JSON")
     parser.add_argument("--annotation-version", required=True, help="Annotation version, e.g. ann_v001")
     parser.add_argument("--data-root", default=os.getenv("BIRDS_DATA_ROOT", "/data/birds_project"))
+    parser.add_argument("--label-config", default=str(DEFAULT_LABEL_CONFIG), help="Path to the current Label Studio label_config.xml")
+    parser.add_argument("--raw-metadata-json", default="", help="Optional export metadata JSON to carry into the manifest")
     return parser.parse_args(argv)
+
+
+def load_current_schema(label_config_path: pathlib.Path) -> CurrentAnnotationSchema:
+    root = ET.fromstring(label_config_path.read_text(encoding="utf-8"))
+    rectangle_from_name = ""
+    rectangle_labels: set[str] = set()
+    choice_fields: dict[str, frozenset[str]] = {}
+
+    for node in root.iter():
+        tag = node.tag.split("}", 1)[-1]
+        if tag == "RectangleLabels":
+            rectangle_from_name = normalize_choice(node.attrib.get("name")) or ""
+            rectangle_labels = {
+                value
+                for child in node
+                if child.tag.split("}", 1)[-1] == "Label"
+                for value in [normalize_choice(child.attrib.get("value"))]
+                if value is not None
+            }
+        elif tag == "Choices":
+            field = normalize_choice(node.attrib.get("name"))
+            if field is None:
+                continue
+            values = {
+                value
+                for child in node
+                if child.tag.split("}", 1)[-1] == "Choice"
+                for value in [normalize_choice(child.attrib.get("value"))]
+                if value is not None
+            }
+            choice_fields[field] = frozenset(sorted(values))
+
+    if rectangle_from_name != "bird_bbox" or rectangle_labels != {"bird"}:
+        raise ValueError(
+            f"Unexpected rectangle schema in {label_config_path}: name={rectangle_from_name!r} labels={sorted(rectangle_labels)!r}"
+        )
+    for field in LABEL_FIELDS:
+        if field not in choice_fields:
+            raise ValueError(f"Missing choice field {field!r} in {label_config_path}")
+    return CurrentAnnotationSchema(
+        rectangle_from_name=rectangle_from_name,
+        rectangle_labels=frozenset(sorted(rectangle_labels)),
+        choice_fields=choice_fields,
+    )
+
+
+def load_raw_metadata(raw_metadata_json: pathlib.Path | None) -> dict[str, Any] | None:
+    if raw_metadata_json is None:
+        return None
+    if not raw_metadata_json.exists():
+        raise FileNotFoundError(raw_metadata_json)
+    payload = json.loads(raw_metadata_json.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise TypeError(f"Expected metadata object in {raw_metadata_json}")
+    return payload
 
 
 def clamp01(value: float) -> float:
     return max(0.0, min(1.0, value))
+
+
+def bird_row_id(task_id: str, region_id: str) -> str:
+    return f"task:{task_id}:region:{region_id}"
 
 
 def image_id_from_task(task: dict[str, Any]) -> str:
@@ -62,101 +163,73 @@ def image_id_from_task(task: dict[str, Any]) -> str:
     for candidate in candidates:
         if not candidate:
             continue
-        s = str(candidate)
-
-        if "?d=" in s:
-            parsed = urllib.parse.urlparse(s)
+        raw = str(candidate)
+        if "?d=" in raw:
+            parsed = urllib.parse.urlparse(raw)
             query = urllib.parse.parse_qs(parsed.query)
             local = query.get("d", [""])[0]
             if local:
                 return pathlib.Path(local).stem
-
-        if s.startswith("http://") or s.startswith("https://"):
-            path = urllib.parse.urlparse(s).path
+        if raw.startswith("http://") or raw.startswith("https://"):
+            path = urllib.parse.urlparse(raw).path
             if path:
                 return pathlib.Path(path).stem
-
-        return pathlib.Path(s).stem
-
-    raise ValueError(f"Cannot infer image_id from task: {task.get('id')}")
+        return pathlib.Path(raw).stem
+    raise ValueError(f"Cannot infer image_id from task {task.get('id')!r}")
 
 
 def image_path_from_task(task: dict[str, Any], data_root: pathlib.Path) -> str | None:
-    lines_root = pathlib.Path(
-        os.getenv("LINES_DATA_ROOT", str(data_root.parent / "lines_project"))
-    ).expanduser()
+    lines_root = pathlib.Path(os.getenv("LINES_DATA_ROOT", str(data_root.parent / "lines_project"))).expanduser()
 
-    def _remap_known_roots(resolved: str) -> str:
-        if not resolved:
-            return resolved
-        lines_prefixes = [
+    def remap_known_roots(resolved: str) -> str:
+        prefixes = [
             "/mnt/tank/media/lines_project/",
             "/data/lines_project/",
             "data/lines_project/",
             "lines_project/",
         ]
-        for prefix in lines_prefixes:
+        for prefix in prefixes:
             if resolved.startswith(prefix):
                 suffix = resolved.removeprefix(prefix).lstrip("/")
                 candidate = lines_root / suffix
                 return str(candidate.resolve()) if candidate.exists() else str(candidate)
         return resolved
 
-    def _resolve_local(decoded: str) -> str:
-        decoded = decoded.strip()
-        if not decoded:
+    def resolve_local(raw: str) -> str:
+        value = raw.strip()
+        if not value:
             return ""
-        if decoded.startswith("/mnt/tank/media/lines_project/"):
-            suffix = decoded.removeprefix("/mnt/tank/media/lines_project/").lstrip("/")
-            return _remap_known_roots(f"/mnt/tank/media/lines_project/{suffix}")
-        if decoded.startswith("/data/lines_project/"):
-            suffix = decoded.removeprefix("/data/lines_project/").lstrip("/")
-            return _remap_known_roots(f"/data/lines_project/{suffix}")
-        if decoded.startswith("data/lines_project/"):
-            suffix = decoded.removeprefix("data/lines_project/").lstrip("/")
-            return _remap_known_roots(f"data/lines_project/{suffix}")
-        if decoded.startswith("lines_project/"):
-            suffix = decoded.removeprefix("lines_project/").lstrip("/")
-            candidate = lines_root / suffix
-            return str(candidate.resolve()) if candidate.exists() else str(candidate)
-        if decoded.startswith("/data/birds_project/"):
-            rel = decoded.removeprefix("/data/birds_project/").lstrip("/")
+        if value.startswith("/data/birds_project/"):
+            rel = value.removeprefix("/data/birds_project/").lstrip("/")
             return str((data_root / rel).resolve())
-        if decoded.startswith("data/birds_project/"):
-            rel = decoded.removeprefix("data/birds_project/").lstrip("/")
+        if value.startswith("data/birds_project/"):
+            rel = value.removeprefix("data/birds_project/").lstrip("/")
             return str((data_root / rel).resolve())
-        if decoded.startswith("birds_project/"):
-            rel = decoded.removeprefix("birds_project/").lstrip("/")
+        if value.startswith("birds_project/"):
+            rel = value.removeprefix("birds_project/").lstrip("/")
             return str((data_root / rel).resolve())
-        if decoded.startswith("/"):
-            return _remap_known_roots(decoded)
-        return _remap_known_roots(str((data_root / decoded).resolve()))
+        if value.startswith("/"):
+            return remap_known_roots(value)
+        return remap_known_roots(str((data_root / value).resolve()))
 
     data = task.get("data", {})
     candidates = [data.get("image"), data.get("filepath"), data.get("path"), task.get("image")]
     for candidate in candidates:
         if not candidate:
             continue
-        s = str(candidate)
-        if "?d=" in s:
-            parsed = urllib.parse.urlparse(s)
+        raw = str(candidate)
+        if "?d=" in raw:
+            parsed = urllib.parse.urlparse(raw)
             query = urllib.parse.parse_qs(parsed.query)
             local = query.get("d", [""])[0]
             if local:
-                resolved = _resolve_local(urllib.parse.unquote(local))
+                resolved = resolve_local(urllib.parse.unquote(local))
                 if resolved:
                     return resolved
-        if s.startswith("http://") or s.startswith("https://"):
+        if raw.startswith("http://") or raw.startswith("https://"):
             continue
-        return _resolve_local(s)
+        return resolve_local(raw)
     return None
-
-
-def first_choice(result: dict[str, Any]) -> str | None:
-    choices = (((result.get("value") or {}).get("choices")) or [])
-    if not choices:
-        return None
-    return normalize_choice(str(choices[0]))
 
 
 def bbox_from_region(region: dict[str, Any]) -> tuple[float, float, float, float]:
@@ -168,123 +241,138 @@ def bbox_from_region(region: dict[str, Any]) -> tuple[float, float, float, float
     return clamp01(x), clamp01(y), clamp01(w), clamp01(h)
 
 
-def pick_annotation(task: dict[str, Any]) -> dict[str, Any]:
+def pick_annotation(task: dict[str, Any]) -> dict[str, Any] | None:
     annotations = task.get("annotations") or []
     kept = [ann for ann in annotations if isinstance(ann, dict) and not ann.get("was_cancelled")]
     if not kept:
-        return {"result": []}
+        return None
     kept.sort(key=lambda ann: (str(ann.get("updated_at") or ""), str(ann.get("created_at") or ""), int(ann.get("id") or 0)))
     return kept[-1]
 
 
+def require_choice_value(item: dict[str, Any], *, field: str, task_id: str, annotation_id: str) -> str:
+    values = (((item.get("value") or {}).get("choices")) or [])
+    if not values:
+        raise ValueError(f"Task {task_id} annotation {annotation_id}: field {field!r} has an empty choices payload")
+    choice = normalize_choice(str(values[0]))
+    if choice is None:
+        raise ValueError(f"Task {task_id} annotation {annotation_id}: field {field!r} has an empty choice value")
+    return choice
+
+
+def validate_choice_value(*, field: str, value: str, schema: CurrentAnnotationSchema, task_id: str, annotation_id: str) -> None:
+    allowed = schema.choice_fields.get(field)
+    if allowed is None:
+        raise ValueError(f"Task {task_id} annotation {annotation_id}: unexpected field {field!r}")
+    if value not in allowed:
+        raise ValueError(
+            f"Task {task_id} annotation {annotation_id}: field {field!r} value {value!r} is not in the current schema {sorted(allowed)!r}"
+        )
+
+
 def extract_task_rows(
+    *,
     task: dict[str, Any],
     annotation_version: str,
-    migration_stats: dict[str, Any],
     data_root: pathlib.Path,
-) -> tuple[dict[str, Any], list[BirdRow]]:
+    schema: CurrentAnnotationSchema,
+) -> tuple[dict[str, Any] | None, list[BirdRow]]:
+    task_id = normalize_choice(str(task.get("id")))
+    if task_id is None:
+        raise ValueError("Task id is required")
+    annotation = pick_annotation(task)
+    if annotation is None:
+        return None, []
+
+    annotation_id = normalize_choice(str(annotation.get("id")))
+    if annotation_id is None:
+        raise ValueError(f"Task {task_id}: latest annotation is missing an id")
+
     image_id = image_id_from_task(task)
     data = task.get("data") or {}
-    valid_isbird = {"yes", "no"}
-    valid_readability = {"readable", "occluded", "unreadable"}
-    valid_specie = {"correct", "incorrect", "unsure"}
-    valid_behavior = set(BEHAVIOR_TO_ID)
-    valid_substrate = set(SUBSTRATE_TO_ID)
-    valid_stance = set(STANCE_TO_ID)
-
-    annotation = pick_annotation(task)
     results: list[dict[str, Any]] = annotation.get("result") or []
-
     region_state: dict[str, dict[str, Any]] = {}
 
     for item in results:
-        item_type = item.get("type")
+        if not isinstance(item, dict):
+            raise ValueError(f"Task {task_id} annotation {annotation_id}: result item is not an object")
+        item_type = normalize_choice(item.get("type"))
         from_name = normalize_choice(item.get("from_name"))
-        region_id = item.get("id")
-
         if item_type == "rectanglelabels":
-            labels = [normalize_choice(v) for v in (item.get("value") or {}).get("rectanglelabels", [])]
-            if "bird" not in labels:
-                continue
-            if not region_id:
-                continue
-            x, y, w, h = bbox_from_region(item)
+            if from_name != schema.rectangle_from_name:
+                raise ValueError(
+                    f"Task {task_id} annotation {annotation_id}: unexpected rectangle field {from_name!r}; expected {schema.rectangle_from_name!r}"
+                )
+            region_id = normalize_choice(str(item.get("id")))
+            if region_id is None:
+                raise ValueError(f"Task {task_id} annotation {annotation_id}: region is missing an id")
+            labels = [normalize_choice(value) for value in (item.get("value") or {}).get("rectanglelabels", [])]
+            labels = [value for value in labels if value is not None]
+            if not labels:
+                raise ValueError(f"Task {task_id} annotation {annotation_id}: region {region_id} has no rectangle label")
+            invalid_labels = [value for value in labels if value not in schema.rectangle_labels]
+            if invalid_labels:
+                raise ValueError(
+                    f"Task {task_id} annotation {annotation_id}: region {region_id} uses non-current rectangle labels {invalid_labels!r}"
+                )
             region_state[region_id] = {
-                "bbox": (x, y, w, h),
+                "bbox": bbox_from_region(item),
                 "isbird": None,
                 "readability": None,
                 "specie": None,
                 "behavior": None,
                 "substrate": None,
                 "stance": None,
-                "legacy_legs": None,
             }
-            continue
+        elif item_type not in {"choices", None}:
+            raise ValueError(
+                f"Task {task_id} annotation {annotation_id}: unexpected result item type {item.get('type')!r}"
+            )
 
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        item_type = normalize_choice(item.get("type"))
         if item_type != "choices":
             continue
-
-        parent_id = item.get("parentID") or item.get("parent_id")
-        if not parent_id:
-            candidate_id = item.get("id")
-            if candidate_id in region_state:
-                parent_id = candidate_id
-        if not parent_id or parent_id not in region_state:
-            continue
-
-        choice = first_choice(item)
-        if from_name in {"isbird", "readability", "specie", "behavior", "substrate", "stance", "legs"}:
-            target_name = "stance" if from_name == "stance" else from_name
-            if from_name == "legs":
-                region_state[parent_id]["legacy_legs"] = choice
-            region_state[parent_id][target_name] = choice
+        field = normalize_choice(item.get("from_name"))
+        if field is None:
+            raise ValueError(f"Task {task_id} annotation {annotation_id}: choice item is missing from_name")
+        if field not in schema.choice_fields:
+            raise ValueError(f"Task {task_id} annotation {annotation_id}: unexpected field {field!r}")
+        parent_id = normalize_choice(str(item.get("parentID") or item.get("parent_id") or item.get("id")))
+        if parent_id is None or parent_id not in region_state:
+            raise ValueError(
+                f"Task {task_id} annotation {annotation_id}: field {field!r} references unknown region {item.get('parentID') or item.get('parent_id') or item.get('id')!r}"
+            )
+        choice = require_choice_value(item, field=field, task_id=task_id, annotation_id=annotation_id)
+        validate_choice_value(field=field, value=choice, schema=schema, task_id=task_id, annotation_id=annotation_id)
+        region_state[parent_id][field] = choice
 
     birds: list[BirdRow] = []
     image_usable = False
-    for i, (region_id, state) in enumerate(sorted(region_state.items(), key=lambda it: it[0])):
-        isbird = normalize_choice(state.get("isbird"))
+    for region_id in sorted(region_state):
+        state = region_state[region_id]
+        isbird = state["isbird"]
         if isbird is None:
-            isbird = "yes"
-            migration_stats["assumed_isbird_yes_missing_flag"] += 1
-        if isbird not in valid_isbird:
-            raise ValueError(f"Invalid isbird '{isbird}' for image {image_id}, region {region_id}")
+            raise ValueError(f"Task {task_id} annotation {annotation_id}: region {region_id} is missing required field 'isbird'")
+
+        readability = state["readability"]
+        specie = state["specie"]
+        behavior = state["behavior"]
+        substrate = state["substrate"]
+        stance = state["stance"]
+
         if isbird == "yes":
             image_usable = True
-
-        readability = normalize_choice(state.get("readability"))
-        specie = normalize_choice(state.get("specie"))
-        behavior_raw = state.get("behavior")
-        substrate_raw = state.get("substrate")
-        stance_raw = state.get("stance") or state.get("legacy_legs")
-
-        behavior = normalize_behavior(behavior_raw)
-        substrate = normalize_substrate(substrate_raw)
-        stance = normalize_stance(stance_raw)
-
-        if normalize_choice(substrate_raw) == "ground":
-            migration_stats["mapped_ground_to_bare_ground"] += 1
-        if normalize_choice(state.get("legacy_legs")) == "one":
-            migration_stats["mapped_legacy_one_to_unipedal"] += 1
-        if normalize_choice(state.get("legacy_legs")) == "two":
-            migration_stats["mapped_legacy_two_to_bipedal"] += 1
-
-        if isbird == "no":
-            readability = None
-            specie = None
-            behavior = None
-            substrate = None
-            stance = None
-        else:
             if readability is None:
-                migration_stats["dropped_incomplete_positive_regions"] += 1
-                continue
+                raise ValueError(
+                    f"Task {task_id} annotation {annotation_id}: region {region_id} is missing required field 'readability'"
+                )
             if specie is None:
-                migration_stats["dropped_incomplete_positive_regions"] += 1
-                continue
-            if readability not in valid_readability:
-                raise ValueError(f"Invalid readability '{readability}' for image {image_id}")
-            if specie not in valid_specie:
-                raise ValueError(f"Invalid specie '{specie}' for image {image_id}")
+                raise ValueError(
+                    f"Task {task_id} annotation {annotation_id}: region {region_id} is missing required field 'specie'"
+                )
 
             if readability == "unreadable" or specie == "incorrect":
                 behavior = None
@@ -295,27 +383,41 @@ def extract_task_rows(
                     behavior = "unsure"
                 if substrate is None:
                     substrate = "unsure"
-
-                if behavior not in valid_behavior:
-                    raise ValueError(f"Invalid behavior '{behavior}' for image {image_id}")
-                if substrate not in valid_substrate:
-                    raise ValueError(f"Invalid substrate '{substrate}' for image {image_id}")
-
+                if behavior not in BEHAVIOR_VALUES:
+                    raise ValueError(
+                        f"Task {task_id} annotation {annotation_id}: region {region_id} has invalid behavior {behavior!r}"
+                    )
+                if substrate not in SUBSTRATE_VALUES:
+                    raise ValueError(
+                        f"Task {task_id} annotation {annotation_id}: region {region_id} has invalid substrate {substrate!r}"
+                    )
                 if behavior in {"resting", "backresting"} and substrate in {"bare_ground", "water", "unsure"}:
                     if stance is None:
                         stance = "unsure"
                 else:
                     stance = None
-
-                if stance is not None and stance not in valid_stance:
-                    raise ValueError(f"Invalid stance '{stance}' for image {image_id}")
+                if stance is not None and stance not in STANCE_VALUES:
+                    raise ValueError(
+                        f"Task {task_id} annotation {annotation_id}: region {region_id} has invalid stance {stance!r}"
+                    )
+        elif isbird == "no":
+            readability = None
+            specie = None
+            behavior = None
+            substrate = None
+            stance = None
+        else:
+            raise ValueError(f"Task {task_id} annotation {annotation_id}: region {region_id} has invalid isbird {isbird!r}")
 
         x, y, w, h = state["bbox"]
         birds.append(
             BirdRow(
                 annotation_version=annotation_version,
+                task_id=task_id,
+                annotation_id=annotation_id,
+                region_id=region_id,
                 image_id=image_id,
-                bird_id=f"{image_id}:{i:03d}",
+                bird_id=bird_row_id(task_id, region_id),
                 bbox_x=x,
                 bbox_y=y,
                 bbox_w=w,
@@ -335,6 +437,8 @@ def extract_task_rows(
 
     image_row = {
         "annotation_version": annotation_version,
+        "task_id": task_id,
+        "annotation_id": annotation_id,
         "image_id": image_id,
         "image_usable": bool(image_usable),
         "filepath": image_path_from_task(task, data_root),
@@ -348,7 +452,7 @@ def write_deterministic_parquet(df, out_path: pathlib.Path) -> None:
         import pyarrow as pa
         import pyarrow.parquet as pq
     except ModuleNotFoundError as exc:
-        raise RuntimeError("pyarrow is required. Install dependencies with `make bootstrap` or `pip install -e .[dev]`.") from exc
+        raise RuntimeError("pyarrow is required for parquet output. Install it before running extraction.") from exc
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     table = pa.Table.from_pandas(df, preserve_index=False)
@@ -362,151 +466,627 @@ def write_deterministic_parquet(df, out_path: pathlib.Path) -> None:
     )
 
 
-def write_report(path: pathlib.Path, payload: dict[str, Any]) -> None:
+def write_json(path: pathlib.Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    args = parse_args(argv)
+def pandas_frame(data, columns: list[str]):
+    import pandas as pd
+
+    if data:
+        return pd.DataFrame(data)
+    return pd.DataFrame(columns=columns)
+
+
+def counts_by_value(frame, column: str) -> dict[str, int]:
+    values = frame[column].fillna("<null>").value_counts().sort_index().to_dict()
+    return {str(key): int(value) for key, value in values.items()}
+
+
+def normalize_output_frames(image_rows: list[dict[str, Any]], bird_rows: list[BirdRow]):
+    images_df = pandas_frame(
+        image_rows,
+        [
+            "annotation_version",
+            "task_id",
+            "annotation_id",
+            "image_id",
+            "image_usable",
+            "filepath",
+            "site_id",
+        ],
+    )
+    if not images_df.empty:
+        duplicates = images_df[images_df["image_id"].duplicated(keep=False)]
+        if not duplicates.empty:
+            duplicate_ids = sorted(set(str(value) for value in duplicates["image_id"].tolist()))
+            raise ValueError(f"Duplicate image_id values in annotated tasks are not allowed: {duplicate_ids!r}")
+        images_df["task_id"] = images_df["task_id"].astype(str)
+        images_df["annotation_id"] = images_df["annotation_id"].astype(str)
+        images_df["image_id"] = images_df["image_id"].astype(str)
+        images_df = images_df.sort_values(["image_id", "task_id", "annotation_id"]).reset_index(drop=True)
+
+    birds_df = pandas_frame(
+        [asdict(row) for row in bird_rows],
+        [
+            "annotation_version",
+            "task_id",
+            "annotation_id",
+            "region_id",
+            "image_id",
+            "bird_id",
+            "bbox_x",
+            "bbox_y",
+            "bbox_w",
+            "bbox_h",
+            "bbox_x_px",
+            "bbox_y_px",
+            "bbox_w_px",
+            "bbox_h_px",
+            "isbird",
+            "readability",
+            "specie",
+            "behavior",
+            "substrate",
+            "stance",
+        ],
+    )
+    if not birds_df.empty:
+        for column in ("task_id", "annotation_id", "region_id", "image_id", "bird_id"):
+            birds_df[column] = birds_df[column].astype(str)
+        birds_df = birds_df.sort_values(["image_id", "task_id", "region_id", "bird_id"]).reset_index(drop=True)
+    return images_df, birds_df
+
+
+def is_missing(value: Any) -> bool:
     try:
         import pandas as pd
-    except ModuleNotFoundError as exc:
-        raise RuntimeError("pandas is required. Install dependencies with `make bootstrap` or `pip install -e .[dev]`.") from exc
 
-    export_json = pathlib.Path(args.export_json).expanduser().resolve()
+        return bool(pd.isna(value))
+    except Exception:  # noqa: BLE001
+        return value is None
+
+
+def json_value(value: Any) -> Any:
+    if hasattr(value, "item") and callable(getattr(value, "item")):
+        try:
+            return value.item()
+        except Exception:  # noqa: BLE001
+            pass
+    if is_missing(value):
+        return None
+    return value
+
+
+def values_equal(left: Any, right: Any) -> bool:
+    if is_missing(left) and is_missing(right):
+        return True
+    return json_value(left) == json_value(right)
+
+
+def label_counts(frame) -> dict[str, dict[str, int]]:
+    return {field: counts_by_value(frame, field) for field in LABEL_FIELDS}
+
+
+def current_extract_payload(
+    *,
+    annotation_version: str,
+    export_json: pathlib.Path,
+    schema: CurrentAnnotationSchema,
+    raw_metadata: dict[str, Any] | None,
+    stats: dict[str, int],
+    images_df,
+    birds_df,
+) -> dict[str, Any]:
+    counts = {
+        "tasks_total_raw": int(stats["tasks_total_raw"]),
+        "tasks_with_any_annotations": int(stats["tasks_with_any_annotations"]),
+        "tasks_with_cancelled_annotations": int(stats["tasks_with_cancelled_annotations"]),
+        "tasks_with_kept_annotation": int(stats["tasks_with_kept_annotation"]),
+        "tasks_skipped_without_kept_annotation": int(stats["tasks_skipped_without_kept_annotation"]),
+        "annotated_tasks_with_zero_regions": int(stats["annotated_tasks_with_zero_regions"]),
+        "images_rows": int(len(images_df)),
+        "birds_rows": int(len(birds_df)),
+        "images_usable_true": int(images_df["image_usable"].astype(bool).sum()) if not images_df.empty else 0,
+        "images_usable_false": int((~images_df["image_usable"].astype(bool)).sum()) if not images_df.empty else 0,
+    }
+    null_counts = {
+        field: int(birds_df[field].isna().sum()) if not birds_df.empty else 0
+        for field in LABEL_FIELDS
+    }
+    return {
+        "annotation_version": annotation_version,
+        "schema_version": CURRENT_SCHEMA_VERSION,
+        "normalization_policy_version": NORMALIZATION_POLICY_VERSION,
+        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "export_json": str(export_json),
+        "raw_export_metadata": raw_metadata,
+        "schema_fields": {
+            "rectangle": schema.rectangle_from_name,
+            "choices": {key: sorted(values) for key, values in sorted(schema.choice_fields.items())},
+        },
+        "counts": counts,
+        "field_counts": label_counts(birds_df) if not birds_df.empty else {field: {} for field in LABEL_FIELDS},
+        "null_counts": null_counts,
+    }
+
+
+def compare_frames(current_images, current_birds, previous_dir: pathlib.Path | None) -> dict[str, Any]:
+    import pandas as pd
+
+    if previous_dir is None:
+        return {
+            "previous_annotation_version": None,
+            "images": {"added": 0, "removed": 0, "changed": 0, "unchanged": int(len(current_images))},
+            "birds": {"added": 0, "removed": 0, "changed": 0, "unchanged": int(len(current_birds))},
+            "field_change_counts": {"bbox": 0, **{field: 0 for field in LABEL_FIELDS}},
+            "label_delta_counts": {field: counts_by_value(current_birds, field) if not current_birds.empty else {} for field in LABEL_FIELDS},
+            "image_changes": {"added": [], "removed": [], "changed": []},
+            "bird_changes": {"added": [], "removed": [], "changed": []},
+        }
+
+    prev_images_path = previous_dir / "images_labels.parquet"
+    prev_birds_path = previous_dir / "birds.parquet"
+    previous_images = pd.read_parquet(prev_images_path) if prev_images_path.exists() else pd.DataFrame(columns=current_images.columns)
+    previous_birds = pd.read_parquet(prev_birds_path) if prev_birds_path.exists() else pd.DataFrame(columns=current_birds.columns)
+
+    image_compare_fields = ["image_usable", "filepath", "site_id"]
+    current_images_by_key = {str(row["image_id"]): row for _, row in current_images.iterrows()}
+    previous_images_by_key = {str(row["image_id"]): row for _, row in previous_images.iterrows()}
+    current_birds_by_key = {str(row["bird_id"]): row for _, row in current_birds.iterrows()}
+    previous_birds_by_key = {str(row["bird_id"]): row for _, row in previous_birds.iterrows()}
+
+    added_images = sorted(set(current_images_by_key) - set(previous_images_by_key))
+    removed_images = sorted(set(previous_images_by_key) - set(current_images_by_key))
+    changed_images: list[dict[str, Any]] = []
+    for image_id in sorted(set(current_images_by_key) & set(previous_images_by_key)):
+        previous_row = previous_images_by_key[image_id]
+        current_row = current_images_by_key[image_id]
+        changed_fields = {}
+        for field in image_compare_fields:
+            prev_value = previous_row[field]
+            cur_value = current_row[field]
+            if not values_equal(prev_value, cur_value):
+                changed_fields[field] = {"previous": json_value(prev_value), "current": json_value(cur_value)}
+        if changed_fields:
+            changed_images.append({"image_id": image_id, "changed_fields": changed_fields})
+
+    bird_compare_fields = ["image_id", "bbox_x", "bbox_y", "bbox_w", "bbox_h", *LABEL_FIELDS]
+    added_birds = sorted(set(current_birds_by_key) - set(previous_birds_by_key))
+    removed_birds = sorted(set(previous_birds_by_key) - set(current_birds_by_key))
+    changed_birds: list[dict[str, Any]] = []
+    field_change_counts = {"bbox": 0, **{field: 0 for field in LABEL_FIELDS}}
+    for bird_id in sorted(set(current_birds_by_key) & set(previous_birds_by_key)):
+        previous_row = previous_birds_by_key[bird_id]
+        current_row = current_birds_by_key[bird_id]
+        changed_fields = {}
+        bbox_changed = False
+        for field in bird_compare_fields:
+            prev_value = previous_row[field]
+            cur_value = current_row[field]
+            if values_equal(prev_value, cur_value):
+                continue
+            changed_fields[field] = {"previous": json_value(prev_value), "current": json_value(cur_value)}
+            if field.startswith("bbox_"):
+                bbox_changed = True
+            elif field in LABEL_FIELDS:
+                field_change_counts[field] += 1
+        if bbox_changed:
+            field_change_counts["bbox"] += 1
+        if changed_fields:
+            changed_birds.append(
+                {
+                    "bird_id": bird_id,
+                    "image_id": json_value(current_row["image_id"]),
+                    "changed_fields": changed_fields,
+                }
+            )
+
+    current_counts = label_counts(current_birds) if not current_birds.empty else {field: {} for field in LABEL_FIELDS}
+    previous_counts = label_counts(previous_birds) if not previous_birds.empty else {field: {} for field in LABEL_FIELDS}
+    label_delta_counts: dict[str, dict[str, int]] = {}
+    for field in LABEL_FIELDS:
+        delta: dict[str, int] = {}
+        for label in sorted(set(current_counts[field]) | set(previous_counts[field])):
+            delta[label] = int(current_counts[field].get(label, 0)) - int(previous_counts[field].get(label, 0))
+        label_delta_counts[field] = delta
+
+    return {
+        "previous_annotation_version": previous_dir.name,
+        "images": {
+            "added": len(added_images),
+            "removed": len(removed_images),
+            "changed": len(changed_images),
+            "unchanged": int(len(set(current_images_by_key) & set(previous_images_by_key)) - len(changed_images)),
+        },
+        "birds": {
+            "added": len(added_birds),
+            "removed": len(removed_birds),
+            "changed": len(changed_birds),
+            "unchanged": int(len(set(current_birds_by_key) & set(previous_birds_by_key)) - len(changed_birds)),
+        },
+        "field_change_counts": field_change_counts,
+        "label_delta_counts": label_delta_counts,
+        "image_changes": {
+            "added": added_images,
+            "removed": removed_images,
+            "changed": changed_images,
+        },
+        "bird_changes": {
+            "added": added_birds,
+            "removed": removed_birds,
+            "changed": changed_birds,
+        },
+    }
+
+
+def import_pyplot():
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("matplotlib is required to render extraction plots.") from exc
+    return plt
+
+
+def save_plot(fig, base_path: pathlib.Path) -> dict[str, str]:
+    png_path = base_path.with_suffix(".png")
+    svg_path = base_path.with_suffix(".svg")
+    fig.tight_layout()
+    fig.savefig(png_path, dpi=160, bbox_inches="tight")
+    fig.savefig(svg_path, bbox_inches="tight")
+    return {"png": png_path.name, "svg": svg_path.name}
+
+
+def render_current_plots(*, plots_dir: pathlib.Path, current_payload: dict[str, Any]) -> dict[str, dict[str, str]]:
+    plt = import_pyplot()
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    out: dict[str, dict[str, str]] = {}
+
+    counts = current_payload["counts"]
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    keys = [
+        "tasks_total_raw",
+        "tasks_with_kept_annotation",
+        "images_rows",
+        "birds_rows",
+        "images_usable_true",
+        "images_usable_false",
+    ]
+    ax.bar(range(len(keys)), [counts[key] for key in keys], color="#2F6B8A")
+    ax.set_xticks(range(len(keys)))
+    ax.set_xticklabels(
+        ["raw tasks", "annotated tasks", "images", "birds", "usable images", "non-usable images"],
+        rotation=20,
+        ha="right",
+    )
+    ax.set_ylabel("count")
+    ax.set_title("Current Extract Summary")
+    out["current_extract_summary"] = save_plot(fig, plots_dir / "current_extract_summary")
+    plt.close(fig)
+
+    null_counts = current_payload["null_counts"]
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    labels = list(null_counts)
+    ax.bar(range(len(labels)), [null_counts[label] for label in labels], color="#C66B3D")
+    ax.set_xticks(range(len(labels)))
+    ax.set_xticklabels(labels, rotation=20, ha="right")
+    ax.set_ylabel("null rows")
+    ax.set_title("Null / Inapplicable Counts")
+    out["current_null_counts"] = save_plot(fig, plots_dir / "current_null_counts")
+    plt.close(fig)
+
+    field_counts = current_payload["field_counts"]
+    fig, axes = plt.subplots(3, 2, figsize=(12, 11))
+    for ax, field in zip(axes.flat, LABEL_FIELDS):
+        counts_map = {key: value for key, value in field_counts[field].items() if key != "<null>"}
+        if not counts_map:
+            ax.text(0.5, 0.5, "No data", ha="center", va="center")
+            ax.set_axis_off()
+            continue
+        labels = list(counts_map)
+        ax.bar(range(len(labels)), [counts_map[label] for label in labels], color="#478A6E")
+        ax.set_xticks(range(len(labels)))
+        ax.set_xticklabels(labels, rotation=35, ha="right")
+        ax.set_title(field)
+    fig.suptitle("Current Label Distributions", y=1.02)
+    out["current_label_distributions"] = save_plot(fig, plots_dir / "current_label_distributions")
+    plt.close(fig)
+    return out
+
+
+def render_comparison_plots(*, plots_dir: pathlib.Path, comparison_payload: dict[str, Any]) -> dict[str, dict[str, str]]:
+    plt = import_pyplot()
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    out: dict[str, dict[str, str]] = {}
+
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    labels = ["images added", "images removed", "images changed", "birds added", "birds removed", "birds changed"]
+    values = [
+        comparison_payload["images"]["added"],
+        comparison_payload["images"]["removed"],
+        comparison_payload["images"]["changed"],
+        comparison_payload["birds"]["added"],
+        comparison_payload["birds"]["removed"],
+        comparison_payload["birds"]["changed"],
+    ]
+    ax.bar(range(len(labels)), values, color="#7A4EA3")
+    ax.set_xticks(range(len(labels)))
+    ax.set_xticklabels(labels, rotation=25, ha="right")
+    ax.set_ylabel("count")
+    ax.set_title("Version-to-Version Row Deltas")
+    out["comparison_row_deltas"] = save_plot(fig, plots_dir / "comparison_row_deltas")
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    field_change_counts = comparison_payload["field_change_counts"]
+    labels = list(field_change_counts)
+    ax.bar(range(len(labels)), [field_change_counts[label] for label in labels], color="#D18B47")
+    ax.set_xticks(range(len(labels)))
+    ax.set_xticklabels(labels, rotation=20, ha="right")
+    ax.set_ylabel("changed birds")
+    ax.set_title("Changed Bird Fields")
+    out["comparison_field_changes"] = save_plot(fig, plots_dir / "comparison_field_changes")
+    plt.close(fig)
+
+    fig, axes = plt.subplots(3, 2, figsize=(12, 11))
+    for ax, field in zip(axes.flat, LABEL_FIELDS):
+        deltas = {key: value for key, value in comparison_payload["label_delta_counts"][field].items() if value != 0}
+        if not deltas:
+            ax.text(0.5, 0.5, "No delta", ha="center", va="center")
+            ax.set_axis_off()
+            continue
+        labels = list(deltas)
+        values = [deltas[label] for label in labels]
+        colors = ["#3D8A68" if value >= 0 else "#B4514D" for value in values]
+        ax.bar(range(len(labels)), values, color=colors)
+        ax.axhline(0, color="#333333", linewidth=1)
+        ax.set_xticks(range(len(labels)))
+        ax.set_xticklabels(labels, rotation=35, ha="right")
+        ax.set_title(field)
+    fig.suptitle("Label Count Deltas vs Previous Extract", y=1.02)
+    out["comparison_label_deltas"] = save_plot(fig, plots_dir / "comparison_label_deltas")
+    plt.close(fig)
+    return out
+
+
+def embed_plot_block(title: str, plot_name: str, plot_files: dict[str, dict[str, str]]) -> list[str]:
+    files = plot_files[plot_name]
+    return [
+        f"### {title}",
+        "",
+        f"![{title}](plots/{files['png']})",
+        "",
+        f"`SVG:` `plots/{files['svg']}`",
+        "",
+    ]
+
+
+def write_extract_report_md(
+    *,
+    path: pathlib.Path,
+    current_payload: dict[str, Any],
+    comparison_payload: dict[str, Any],
+    plot_files: dict[str, dict[str, str]],
+) -> None:
+    counts = current_payload["counts"]
+    lines = [
+        f"# Annotation Extract: {current_payload['annotation_version']}",
+        "",
+        f"- Schema version: `{current_payload['schema_version']}`",
+        f"- Normalization policy: `{current_payload['normalization_policy_version']}`",
+        f"- Source export: `{current_payload['export_json']}`",
+        f"- Previous extract: `{comparison_payload['previous_annotation_version'] or 'none'}`",
+        f"- Raw tasks: `{counts['tasks_total_raw']}`",
+        f"- Annotated tasks kept: `{counts['tasks_with_kept_annotation']}`",
+        f"- Annotated images: `{counts['images_rows']}`",
+        f"- Bird rows: `{counts['birds_rows']}`",
+        f"- Images with usable birds: `{counts['images_usable_true']}`",
+        "",
+    ]
+    lines.extend(embed_plot_block("Current Extract Summary", "current_extract_summary", plot_files))
+    lines.extend(embed_plot_block("Null / Inapplicable Counts", "current_null_counts", plot_files))
+    lines.extend(embed_plot_block("Current Label Distributions", "current_label_distributions", plot_files))
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def write_comparison_report_md(
+    *,
+    path: pathlib.Path,
+    annotation_version: str,
+    comparison_payload: dict[str, Any],
+    plot_files: dict[str, dict[str, str]],
+) -> None:
+    lines = [
+        f"# Annotation Comparison: {annotation_version}",
+        "",
+        f"- Previous extract: `{comparison_payload['previous_annotation_version'] or 'none'}`",
+        f"- Images added / removed / changed: `{comparison_payload['images']['added']}` / `{comparison_payload['images']['removed']}` / `{comparison_payload['images']['changed']}`",
+        f"- Birds added / removed / changed: `{comparison_payload['birds']['added']}` / `{comparison_payload['birds']['removed']}` / `{comparison_payload['birds']['changed']}`",
+        "",
+    ]
+    lines.extend(embed_plot_block("Version-to-Version Row Deltas", "comparison_row_deltas", plot_files))
+    lines.extend(embed_plot_block("Changed Bird Fields", "comparison_field_changes", plot_files))
+    lines.extend(embed_plot_block("Label Count Deltas", "comparison_label_deltas", plot_files))
+
+    changed_birds = comparison_payload["bird_changes"]["changed"][:10]
+    if changed_birds:
+        lines.append("## Sample Changed Bird Rows")
+        lines.append("")
+        for item in changed_birds:
+            lines.append(f"- `{item['bird_id']}` fields changed: `{sorted(item['changed_fields'])}`")
+        lines.append("")
+
+    changed_images = comparison_payload["image_changes"]["changed"][:10]
+    if changed_images:
+        lines.append("## Sample Changed Images")
+        lines.append("")
+        for item in changed_images:
+            lines.append(f"- `{item['image_id']}` fields changed: `{sorted(item['changed_fields'])}`")
+        lines.append("")
+
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def normalize_export(
+    *,
+    export_json: pathlib.Path,
+    annotation_version: str,
+    data_root: pathlib.Path,
+    label_config: pathlib.Path = DEFAULT_LABEL_CONFIG,
+    raw_metadata: dict[str, Any] | None = None,
+) -> NormalizationResult:
+    try:
+        import pandas as pd  # noqa: F401
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("pandas is required for annotation normalization.") from exc
+
     if not export_json.exists():
         raise FileNotFoundError(export_json)
+    if not label_config.exists():
+        raise FileNotFoundError(label_config)
 
-    data_root = pathlib.Path(args.data_root).expanduser().resolve()
     layout = ensure_layout(data_root)
-    out_dir = layout.labelstudio_normalized / args.annotation_version
-    out_dir.mkdir(parents=True, exist_ok=True)
-
+    out_dir = layout.labelstudio_normalized / annotation_version
+    out_dir.mkdir(parents=True, exist_ok=False)
     payload = json.loads(export_json.read_text(encoding="utf-8"))
     if not isinstance(payload, list):
         raise TypeError("Label Studio export must be a list of tasks")
 
-    migration_stats: dict[str, Any] = {
-        "tasks_total": len(payload),
-        "tasks_with_annotations": 0,
+    schema = load_current_schema(label_config)
+    stats = {
+        "tasks_total_raw": len(payload),
+        "tasks_with_any_annotations": 0,
         "tasks_with_cancelled_annotations": 0,
-        "assumed_isbird_yes_missing_flag": 0,
-        "dropped_incomplete_positive_regions": 0,
-        "mapped_ground_to_bare_ground": 0,
-        "mapped_legacy_one_to_unipedal": 0,
-        "mapped_legacy_two_to_bipedal": 0,
+        "tasks_with_kept_annotation": 0,
+        "tasks_skipped_without_kept_annotation": 0,
+        "annotated_tasks_with_zero_regions": 0,
     }
 
-    image_rows = []
+    image_rows: list[dict[str, Any]] = []
     bird_rows: list[BirdRow] = []
     for task in payload:
         annotations = task.get("annotations") or []
         if annotations:
-            migration_stats["tasks_with_annotations"] += 1
+            stats["tasks_with_any_annotations"] += 1
         if any(isinstance(ann, dict) and ann.get("was_cancelled") for ann in annotations):
-            migration_stats["tasks_with_cancelled_annotations"] += 1
-
+            stats["tasks_with_cancelled_annotations"] += 1
         image_row, birds = extract_task_rows(
             task=task,
-            annotation_version=args.annotation_version,
-            migration_stats=migration_stats,
+            annotation_version=annotation_version,
             data_root=data_root,
+            schema=schema,
         )
+        if image_row is None:
+            stats["tasks_skipped_without_kept_annotation"] += 1
+            continue
+        stats["tasks_with_kept_annotation"] += 1
+        if not birds:
+            stats["annotated_tasks_with_zero_regions"] += 1
         image_rows.append(image_row)
         bird_rows.extend(birds)
 
-    images_df = pd.DataFrame(image_rows).drop_duplicates(subset=["annotation_version", "image_id"])
-    images_df = images_df.sort_values(["annotation_version", "image_id"]).reset_index(drop=True)
+    images_df, birds_df = normalize_output_frames(image_rows, bird_rows)
 
-    bird_columns = [
-        "annotation_version",
-        "image_id",
-        "bird_id",
-        "bbox_x",
-        "bbox_y",
-        "bbox_w",
-        "bbox_h",
-        "bbox_x_px",
-        "bbox_y_px",
-        "bbox_w_px",
-        "bbox_h_px",
-        "isbird",
-        "readability",
-        "specie",
-        "behavior",
-        "substrate",
-        "stance",
-    ]
-    birds_df = pd.DataFrame([vars(row) for row in bird_rows])
-    if birds_df.empty:
-        birds_df = pd.DataFrame(columns=bird_columns)
-    birds_df = birds_df[bird_columns].sort_values(["annotation_version", "image_id", "bird_id"]).reset_index(drop=True)
-
-    images_out = out_dir / "images_labels.parquet"
     birds_out = out_dir / "birds.parquet"
-    report_out = out_dir / "migration_report.json"
-
+    images_out = out_dir / "images_labels.parquet"
     write_deterministic_parquet(images_df, images_out)
     write_deterministic_parquet(birds_df, birds_out)
 
-    if not birds_df.empty:
-        stance_relevant = (
-            (birds_df["isbird"] == "yes")
-            & birds_df["behavior"].isin(["resting", "backresting"])
-            & birds_df["substrate"].isin(["bare_ground", "water", "unsure"])
-        )
-        field_counts = {}
-        for column in ["isbird", "readability", "specie", "behavior", "substrate", "stance"]:
-            vc = birds_df[column].fillna("<null>").value_counts().sort_index().to_dict()
-            field_counts[column] = {str(k): int(v) for k, v in vc.items()}
-        zero_support_labels = {
-            "behavior": sorted(label for label in BEHAVIOR_TO_ID if int(field_counts["behavior"].get(label, 0)) <= 0),
-            "substrate": sorted(label for label in SUBSTRATE_TO_ID if int(field_counts["substrate"].get(label, 0)) <= 0),
-            "stance": sorted(label for label in STANCE_TO_ID if int(field_counts["stance"].get(label, 0)) <= 0),
-        }
-        mask_stats = {
-            "total_birds": int(len(birds_df)),
-            "isbird_yes_rows": int((birds_df["isbird"] == "yes").sum()),
-            "isbird_no_rows": int((birds_df["isbird"] == "no").sum()),
-            "behavior_null_rows": int(birds_df["behavior"].isna().sum()),
-            "substrate_null_rows": int(birds_df["substrate"].isna().sum()),
-            "stance_null_rows": int(birds_df["stance"].isna().sum()),
-            "stance_relevant_rows": int(stance_relevant.sum()),
-            "images_usable_true": int(images_df["image_usable"].astype(bool).sum()),
-        }
-    else:
-        field_counts = {}
-        zero_support_labels = {"behavior": sorted(BEHAVIOR_TO_ID), "substrate": sorted(SUBSTRATE_TO_ID), "stance": sorted(STANCE_TO_ID)}
-        mask_stats = {
-            "total_birds": 0,
-            "isbird_yes_rows": 0,
-            "isbird_no_rows": 0,
-            "behavior_null_rows": 0,
-            "substrate_null_rows": 0,
-            "stance_null_rows": 0,
-            "stance_relevant_rows": 0,
-            "images_usable_true": 0,
-        }
+    current_payload = current_extract_payload(
+        annotation_version=annotation_version,
+        export_json=export_json,
+        schema=schema,
+        raw_metadata=raw_metadata,
+        stats=stats,
+        images_df=images_df,
+        birds_df=birds_df,
+    )
 
-    report_payload = {
-        "annotation_version": args.annotation_version,
-        "export_json": str(export_json),
-        "images_rows": int(len(images_df)),
-        "birds_rows": int(len(birds_df)),
-        "migration_stats": migration_stats,
-        "mask_stats": mask_stats,
-        "field_counts": field_counts,
-        "zero_support_labels": zero_support_labels,
+    previous_dir = find_previous_version_dir(layout.labelstudio_normalized, "ann", annotation_version)
+    comparison_payload = compare_frames(images_df, birds_df, previous_dir)
+
+    plots_dir = out_dir / "plots"
+    current_plots = render_current_plots(plots_dir=plots_dir, current_payload=current_payload)
+    comparison_plots = render_comparison_plots(plots_dir=plots_dir, comparison_payload=comparison_payload)
+    plot_files = {**current_plots, **comparison_plots}
+
+    manifest = {
+        "annotation_version": annotation_version,
+        "schema_version": CURRENT_SCHEMA_VERSION,
+        "normalization_policy_version": NORMALIZATION_POLICY_VERSION,
+        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "source_export_json": str(export_json),
+        "raw_export_metadata": raw_metadata,
+        "previous_annotation_version": comparison_payload["previous_annotation_version"],
+        "counts": current_payload["counts"],
+        "outputs": {
+            "birds_parquet": birds_out.name,
+            "images_labels_parquet": images_out.name,
+            "extract_report_json": "extract_report.json",
+            "extract_report_md": "extract_report.md",
+            "comparison_to_previous_json": "comparison_to_previous.json",
+            "comparison_to_previous_md": "comparison_to_previous.md",
+            "plots": {key: value for key, value in sorted(plot_files.items())},
+        },
     }
-    write_report(report_out, report_payload)
 
-    print(f"tasks={len(payload)}")
-    print(f"images_rows={len(images_df)}")
-    print(f"birds_rows={len(birds_df)}")
-    print(f"mask_stats={json.dumps(mask_stats, sort_keys=True)}")
-    print(f"images_out={images_out}")
-    print(f"birds_out={birds_out}")
-    print(f"report_out={report_out}")
+    manifest_out = out_dir / "manifest.json"
+    extract_report_json = out_dir / "extract_report.json"
+    extract_report_md = out_dir / "extract_report.md"
+    comparison_json = out_dir / "comparison_to_previous.json"
+    comparison_md = out_dir / "comparison_to_previous.md"
+
+    write_json(manifest_out, manifest)
+    write_json(extract_report_json, current_payload)
+    write_json(comparison_json, comparison_payload)
+    write_extract_report_md(
+        path=extract_report_md,
+        current_payload=current_payload,
+        comparison_payload=comparison_payload,
+        plot_files=plot_files,
+    )
+    write_comparison_report_md(
+        path=comparison_md,
+        annotation_version=annotation_version,
+        comparison_payload=comparison_payload,
+        plot_files=plot_files,
+    )
+
+    return NormalizationResult(
+        annotation_version=annotation_version,
+        out_dir=out_dir,
+        birds_out=birds_out,
+        images_out=images_out,
+        manifest_out=manifest_out,
+        extract_report_json=extract_report_json,
+        extract_report_md=extract_report_md,
+        comparison_json=comparison_json,
+        comparison_md=comparison_md,
+    )
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
+    raw_metadata_path = pathlib.Path(args.raw_metadata_json).expanduser().resolve() if args.raw_metadata_json else None
+    result = normalize_export(
+        export_json=pathlib.Path(args.export_json).expanduser().resolve(),
+        annotation_version=args.annotation_version,
+        data_root=pathlib.Path(args.data_root).expanduser().resolve(),
+        label_config=pathlib.Path(args.label_config).expanduser().resolve(),
+        raw_metadata=load_raw_metadata(raw_metadata_path),
+    )
+    print(f"annotation_version={result.annotation_version}")
+    print(f"output_dir={result.out_dir}")
+    print(f"birds_out={result.birds_out}")
+    print(f"images_out={result.images_out}")
+    print(f"manifest_out={result.manifest_out}")
+    print(f"extract_report_json={result.extract_report_json}")
+    print(f"extract_report_md={result.extract_report_md}")
+    print(f"comparison_json={result.comparison_json}")
+    print(f"comparison_md={result.comparison_md}")
     return 0
 
 

@@ -10,6 +10,7 @@ description = "BirdSys dataset building workflows"
 requires-python = ">=3.11,<3.12"
 dependencies = [
   "duckdb>=1.1.3,<2",
+  "matplotlib>=3.9,<4",
   "pandas>=2.2,<3",
   "pillow>=10,<12",
   "pyarrow>=18,<20",
