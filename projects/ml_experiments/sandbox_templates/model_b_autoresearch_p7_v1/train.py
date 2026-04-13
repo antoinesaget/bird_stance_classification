@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Purpose: Train the sandbox candidate models used during autoresearch runs"""
 from __future__ import annotations
 
 import math

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Purpose: Export annotations from the live Label Studio project on TrueNAS.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"

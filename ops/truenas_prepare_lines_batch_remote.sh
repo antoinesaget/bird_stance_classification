@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Purpose: Build the compressed image mirror and task bundle for a lines-project import on TrueNAS.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"

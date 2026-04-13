@@ -1,3 +1,4 @@
+"""Purpose: Run offline evaluation for Model B artifacts and summarize the resulting metrics"""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass

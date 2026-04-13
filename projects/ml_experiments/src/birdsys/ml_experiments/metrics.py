@@ -1,3 +1,4 @@
+"""Purpose: Provide shared metric helpers used by Model B training and evaluation"""
 from __future__ import annotations
 
 import numpy as np

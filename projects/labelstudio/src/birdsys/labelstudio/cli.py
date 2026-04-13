@@ -1,3 +1,4 @@
+"""Purpose: Expose Label Studio export, import, and prediction commands through the umbrella CLI"""
 from __future__ import annotations
 
 import argparse

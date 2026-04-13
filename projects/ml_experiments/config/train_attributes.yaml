@@ -1,3 +1,4 @@
+# Purpose: Provide the default training hyperparameters for Model B experiments.
 backbone: convnextv2_tiny.fcmae_ft_in1k
 image_size: 384
 batch_size: 16

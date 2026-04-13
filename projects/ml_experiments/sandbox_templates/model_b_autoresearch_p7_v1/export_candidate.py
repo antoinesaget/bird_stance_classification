@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Purpose: Validate and export a sandbox candidate artifact into the backend-compatible shape"""
 from __future__ import annotations
 
 import argparse

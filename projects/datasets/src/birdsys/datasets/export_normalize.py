@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Purpose: Normalize raw Label Studio export JSON into parquet tables used by the training loop."""
 from __future__ import annotations
 
 import argparse

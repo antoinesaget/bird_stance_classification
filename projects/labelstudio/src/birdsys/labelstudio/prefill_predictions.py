@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Purpose: Fetch tasks, call the ML backend, and persist prediction rows back into Label Studio"""
 from __future__ import annotations
 
 import argparse

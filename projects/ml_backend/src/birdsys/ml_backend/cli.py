@@ -1,3 +1,4 @@
+"""Purpose: Expose backend-only operational commands through the umbrella CLI"""
 from __future__ import annotations
 
 import argparse

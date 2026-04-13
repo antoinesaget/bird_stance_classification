@@ -1,3 +1,4 @@
+"""Purpose: Provide a consistent logging setup for scripts and services in the workspace"""
 from __future__ import annotations
 
 import logging

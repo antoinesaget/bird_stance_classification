@@ -1,3 +1,4 @@
+"""Purpose: Expose dataset build and normalization commands through the umbrella CLI."""
 from __future__ import annotations
 
 import argparse

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Purpose: Evaluate a Model B checkpoint or artifact directory against a dataset split"""
 from __future__ import annotations
 
 import argparse

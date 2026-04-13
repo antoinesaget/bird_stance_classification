@@ -1,3 +1,4 @@
+"""Purpose: Verify evaluation CLI behavior for Model B checkpoints and artifact directories"""
 from __future__ import annotations
 
 import json

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Purpose: Train a final Model B artifact on a chosen dataset split"""
 from __future__ import annotations
 
 import argparse

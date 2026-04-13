@@ -1,3 +1,4 @@
+# Purpose: Ignore local environments, caches, data, and generated artifacts that should stay out of git.
 # OS
 .DS_Store
 

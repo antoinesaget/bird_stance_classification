@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Purpose: Persist predictions for a lines-project batch on the TrueNAS Label Studio instance.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"

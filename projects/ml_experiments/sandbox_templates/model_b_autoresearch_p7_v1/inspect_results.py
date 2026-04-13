@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Purpose: Inspect and summarize sandbox run outputs for manual review"""
 from __future__ import annotations
 
 import json

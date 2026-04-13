@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Purpose: Run the minimal remote health checks against the live iats and TrueNAS services.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"

@@ -1,3 +1,4 @@
+"""Purpose: Verify offline Model B evaluation metrics, guards, and confusion accounting"""
 from __future__ import annotations
 
 from pathlib import Path

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Purpose: Create a fresh autoresearch sandbox from the tracked template"""
 from __future__ import annotations
 
 import argparse

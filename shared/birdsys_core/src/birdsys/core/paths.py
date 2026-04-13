@@ -1,3 +1,4 @@
+"""Purpose: Define the canonical repository and data-root layout helpers"""
 from __future__ import annotations
 
 from dataclasses import dataclass

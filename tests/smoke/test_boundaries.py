@@ -1,3 +1,4 @@
+"""Purpose: Verify the monorepo boundaries so active code stays in the intended subprojects"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -43,4 +44,3 @@ def test_subproject_import_boundaries() -> None:
             text = path.read_text(encoding="utf-8")
             for pattern in forbidden[name]:
                 assert pattern not in text, f"{path} imports {pattern}"
-

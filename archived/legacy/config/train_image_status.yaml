@@ -1,8 +1,0 @@
-backbone: convnext_tiny
-device: auto
-image_size: 384
-batch_size: 16
-num_workers: 4
-epochs: 2
-learning_rate: 1.0e-4
-weight_decay: 1.0e-4

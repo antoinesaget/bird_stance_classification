@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Purpose: Copy Label Studio exports from TrueNAS to iats and optionally normalize them there.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"

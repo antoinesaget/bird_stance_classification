@@ -1,3 +1,4 @@
+"""Purpose: Shape prediction responses so the backend stays compatible with Label Studio expectations"""
 from __future__ import annotations
 
 from typing import Any

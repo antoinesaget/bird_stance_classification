@@ -1,3 +1,4 @@
+"""Purpose: Verify grouped cross-validation reporting and baseline comparison behavior"""
 from __future__ import annotations
 
 import json

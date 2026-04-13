@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Purpose: Wrap local Docker Compose commands with the repo-specific paths and env file.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"

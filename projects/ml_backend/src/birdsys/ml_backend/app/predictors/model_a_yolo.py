@@ -1,3 +1,4 @@
+"""Purpose: Load Model A and turn detector outputs into the normalized detection objects used downstream"""
 from __future__ import annotations
 
 import logging

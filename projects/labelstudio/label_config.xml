@@ -1,3 +1,4 @@
+<!-- Purpose: Define the active Label Studio labeling interface for the live projects. -->
 <View style="display: flex; align-items: flex-start; gap: 16px;">
   <View style="flex: 1 1 auto; min-width: 0;">
     <Header value="Bird Annotation &amp; Classification"/>

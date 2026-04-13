@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Purpose: Update a checkout to the requested branch using a fast-forward-only pull.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"

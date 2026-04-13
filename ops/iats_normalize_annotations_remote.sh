@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Purpose: Normalize a Label Studio export into the dataset-friendly bird tables on iats.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"

@@ -1,3 +1,4 @@
+-- Purpose: Capture the historical DuckDB query shape for building the dataset tables.
 -- BirdSys dataset assembly template.
 -- Runtime values are injected by birdsys datasets build-dataset.
 

@@ -1,3 +1,4 @@
+"""Purpose: Verify that the workspace bootstrap points at all active source roots"""
 from __future__ import annotations
 
 from pathlib import Path

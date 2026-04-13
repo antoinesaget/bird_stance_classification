@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Purpose: Promote model artifacts into the served release layout used by the ML backend"""
 from __future__ import annotations
 
 import argparse

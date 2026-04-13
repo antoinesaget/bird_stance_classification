@@ -1,3 +1,4 @@
+"""Purpose: Patch Label Studio local-files browsing so the deployment can serve the project storage layout."""
 """
 HTTP views dedicated to LocalFiles storage download operations.
 

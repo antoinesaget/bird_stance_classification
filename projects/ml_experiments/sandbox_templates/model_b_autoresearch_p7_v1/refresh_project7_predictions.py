@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Purpose: Promote a chosen sandbox candidate and refresh project-7 predictions against it"""
 from __future__ import annotations
 
 import argparse

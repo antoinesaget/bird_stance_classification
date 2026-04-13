@@ -1,3 +1,4 @@
+"""Purpose: Load, validate, and interpret Model B artifact layouts shared by training and serving"""
 from __future__ import annotations
 
 from dataclasses import dataclass

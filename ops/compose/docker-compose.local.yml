@@ -1,3 +1,4 @@
+# Purpose: Define the local development stack for Postgres, Label Studio, and the ML backend.
 services:
   postgres:
     image: postgres:16

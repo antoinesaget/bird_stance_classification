@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Purpose: Refresh stored predictions for untouched lines-project tasks on TrueNAS.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"

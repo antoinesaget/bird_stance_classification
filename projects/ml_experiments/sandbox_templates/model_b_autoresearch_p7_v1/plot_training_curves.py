@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Purpose: Plot loss and metric curves from sandbox experiment histories"""
 from __future__ import annotations
 
 import argparse

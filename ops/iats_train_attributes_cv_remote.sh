@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Purpose: Run grouped cross-validation training for Model B on the iats host.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"

@@ -1,3 +1,4 @@
+# Purpose: Provide the minimal operator entrypoints for local development and remote host workflows.
 SHELL := /bin/bash
 
 REPO_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))

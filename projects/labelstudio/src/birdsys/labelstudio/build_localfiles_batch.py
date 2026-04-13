@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Purpose: Build compressed local-files batches and manifests for new Label Studio tasks"""
 from __future__ import annotations
 
 import argparse

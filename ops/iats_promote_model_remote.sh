@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Purpose: Promote a supplied model artifact into the served slot on iats without retraining it.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"

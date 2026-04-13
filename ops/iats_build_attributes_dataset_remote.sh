@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Purpose: Build a versioned attributes dataset on the iats host from normalized annotations.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"

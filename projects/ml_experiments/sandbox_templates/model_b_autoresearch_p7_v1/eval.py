@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Purpose: Evaluate sandbox fold outputs and summarize keep-or-discard decisions"""
 from __future__ import annotations
 
 import json

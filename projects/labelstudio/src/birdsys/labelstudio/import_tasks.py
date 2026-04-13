@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Purpose: Import prepared task bundles into Label Studio and report the result"""
 from __future__ import annotations
 
 import argparse

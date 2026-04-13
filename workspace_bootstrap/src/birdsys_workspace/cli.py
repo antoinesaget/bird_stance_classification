@@ -1,3 +1,4 @@
+"""Purpose: Bootstrap the monorepo source roots and hand off to the umbrella CLI"""
 from __future__ import annotations
 
 import sys

@@ -1,3 +1,4 @@
+# Purpose: Declare the internal shared core package used by every active subproject.
 [build-system]
 requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"

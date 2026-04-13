@@ -1,3 +1,4 @@
+"""Purpose: Serialize detections and attributes into Label Studio prediction payloads"""
 from __future__ import annotations
 
 from .predictors.model_a_yolo import Detection

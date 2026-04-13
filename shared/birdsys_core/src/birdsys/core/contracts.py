@@ -1,3 +1,4 @@
+"""Purpose: Define the shared typed payloads exchanged between the active subprojects"""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass

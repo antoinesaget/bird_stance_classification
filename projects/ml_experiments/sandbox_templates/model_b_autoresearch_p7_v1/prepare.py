@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Purpose: Create the run directory and baseline inputs needed before a sandbox search starts"""
 from __future__ import annotations
 
 import argparse

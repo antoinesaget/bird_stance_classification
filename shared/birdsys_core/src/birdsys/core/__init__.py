@@ -1,3 +1,4 @@
+"""Purpose: Expose the shared core helpers and contracts used across subprojects"""
 """Shared BirdSys core contracts and runtime helpers."""
 
 from .attributes import (

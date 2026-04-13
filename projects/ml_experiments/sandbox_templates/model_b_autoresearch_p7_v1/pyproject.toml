@@ -1,3 +1,4 @@
+# Purpose: Declare the lightweight Python environment expected inside the sandbox template.
 [project]
 name = "model-b-autoresearch-p7"
 version = "0.1.0"

@@ -1,3 +1,4 @@
+"""Purpose: Expose training, evaluation, and sandbox commands through the umbrella CLI"""
 from __future__ import annotations
 
 import argparse

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Purpose: Create or clone Label Studio projects with the expected backend and config wiring"""
 from __future__ import annotations
 
 import argparse

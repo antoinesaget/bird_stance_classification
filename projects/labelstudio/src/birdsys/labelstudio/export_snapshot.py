@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Purpose: Export project snapshots and related metadata from a Label Studio instance"""
 from __future__ import annotations
 
 import argparse

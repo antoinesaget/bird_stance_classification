@@ -1,3 +1,4 @@
+"""Purpose: Define the neural network architectures shared by Model A and Model B workflows"""
 from __future__ import annotations
 
 import torch

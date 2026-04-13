@@ -1,3 +1,4 @@
+"""Purpose: Verify Label Studio project creation payloads and helper behavior"""
 from __future__ import annotations
 
 from birdsys.labelstudio import create_project

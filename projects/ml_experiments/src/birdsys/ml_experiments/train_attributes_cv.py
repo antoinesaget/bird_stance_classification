@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Purpose: Run grouped cross-validation for Model B and compare against the served artifact"""
 from __future__ import annotations
 
 import argparse

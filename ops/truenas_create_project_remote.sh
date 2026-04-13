@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Purpose: Create or clone a Label Studio project on the TrueNAS deployment host.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"

@@ -1,3 +1,4 @@
+"""Purpose: Load the shared environment and path configuration used across the workspace"""
 from __future__ import annotations
 
 import os

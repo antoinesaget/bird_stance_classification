@@ -1,3 +1,4 @@
+"""Purpose: Provide shared constants and helper utilities for the autoresearch sandbox scripts"""
 from __future__ import annotations
 
 import base64

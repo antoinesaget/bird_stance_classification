@@ -1,3 +1,4 @@
+"""Purpose: Verify Model B predictor loading and inference edge cases"""
 from __future__ import annotations
 
 from pathlib import Path

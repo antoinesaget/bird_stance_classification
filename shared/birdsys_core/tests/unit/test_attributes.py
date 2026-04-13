@@ -1,3 +1,4 @@
+"""Purpose: Verify the shared attribute taxonomy and normalization rules"""
 from __future__ import annotations
 
 from birdsys.core.attributes import (

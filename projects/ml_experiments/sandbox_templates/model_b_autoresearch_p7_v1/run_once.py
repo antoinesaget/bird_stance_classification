@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Purpose: Execute one fixed-budget autoresearch attempt inside the sandbox template"""
 from __future__ import annotations
 
 import argparse

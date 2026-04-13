@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Purpose: Deploy the Label Studio app definition on TrueNAS and wait for it to become healthy.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Purpose: Deploy the ML backend container on iats and verify the served model health.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"

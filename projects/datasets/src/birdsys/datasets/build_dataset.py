@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Purpose: Build a versioned train/val/test dataset directory from normalized annotation tables."""
 from __future__ import annotations
 
 import argparse

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Purpose: Train the final Model B artifact on iats for promotion into production.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"

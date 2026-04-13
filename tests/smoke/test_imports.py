@@ -1,3 +1,4 @@
+"""Purpose: Verify that the top-level packages and key modules still import cleanly"""
 from __future__ import annotations
 
 

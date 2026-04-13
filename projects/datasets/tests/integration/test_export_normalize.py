@@ -1,3 +1,4 @@
+"""Purpose: Verify that export normalization produces the expected parquet outputs and labels."""
 from __future__ import annotations
 
 import json

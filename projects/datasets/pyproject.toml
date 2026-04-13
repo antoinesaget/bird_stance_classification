@@ -1,3 +1,4 @@
+# Purpose: Declare the dataset subproject package metadata and its local install surface.
 [build-system]
 requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"

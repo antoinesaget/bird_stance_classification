@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Purpose: Provide shared shell helpers used by every operational script in the repo.
 
 OPS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$OPS_DIR/.." && pwd)"

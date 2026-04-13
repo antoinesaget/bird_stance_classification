@@ -1,3 +1,4 @@
+# Purpose: Ignore per-run outputs created inside an autoresearch sandbox copy.
 __pycache__/
 *.pyc
 .venv

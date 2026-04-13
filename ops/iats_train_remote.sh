@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Purpose: Run an ad hoc experiment training command on iats through the shared remote harness.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"

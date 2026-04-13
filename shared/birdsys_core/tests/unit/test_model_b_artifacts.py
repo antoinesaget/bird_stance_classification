@@ -1,3 +1,4 @@
+"""Purpose: Verify Model B artifact loading for both legacy and specialist layouts"""
 from __future__ import annotations
 
 import json

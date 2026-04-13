@@ -1,3 +1,4 @@
+"""Purpose: Verify argument parsing and config loading for Model B training commands"""
 from __future__ import annotations
 
 from birdsys.ml_experiments.train_attributes import parse_args

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Purpose: Import a prepared lines-project task bundle into Label Studio on TrueNAS.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"

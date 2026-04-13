@@ -1,3 +1,4 @@
+"""Purpose: Verify that the core ops assets and deployment files still exist and parse"""
 from __future__ import annotations
 
 import py_compile

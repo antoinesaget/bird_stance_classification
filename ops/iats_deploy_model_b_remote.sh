@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Purpose: Promote a Model B artifact on iats and then redeploy the ML backend.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"

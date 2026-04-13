@@ -1,3 +1,4 @@
+"""Purpose: Verify sandbox creation copies the tracked template into a new run workspace"""
 from __future__ import annotations
 
 from pathlib import Path

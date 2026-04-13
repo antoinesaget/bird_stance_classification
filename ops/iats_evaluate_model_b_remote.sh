@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Purpose: Evaluate a candidate Model B artifact on iats against a dataset split.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"

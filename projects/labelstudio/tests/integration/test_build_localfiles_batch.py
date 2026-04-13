@@ -1,3 +1,4 @@
+"""Purpose: Verify that local-files batch generation produces the expected import artifacts"""
 from __future__ import annotations
 
 import csv

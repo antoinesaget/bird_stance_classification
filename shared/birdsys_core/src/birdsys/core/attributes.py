@@ -1,3 +1,4 @@
+"""Purpose: Define shared label taxonomies, normalization helpers, and masking rules"""
 from __future__ import annotations
 
 from dataclasses import dataclass

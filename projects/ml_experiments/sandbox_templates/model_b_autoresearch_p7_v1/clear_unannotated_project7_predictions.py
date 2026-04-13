@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Purpose: Remove stored predictions from untouched project-7 tasks before a refresh run"""
 from __future__ import annotations
 
 import argparse

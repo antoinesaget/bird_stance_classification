@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Purpose: Generate bird crop images from normalized annotations for downstream Model B training."""
 from __future__ import annotations
 
 import argparse

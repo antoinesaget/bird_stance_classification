@@ -1,3 +1,4 @@
+"""Purpose: Route the umbrella BirdSys CLI to the selected subproject command group."""
 from __future__ import annotations
 
 import argparse

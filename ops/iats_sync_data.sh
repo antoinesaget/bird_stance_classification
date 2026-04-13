@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Purpose: Sync canonical bird inputs from TrueNAS into the iats engineering checkout.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"

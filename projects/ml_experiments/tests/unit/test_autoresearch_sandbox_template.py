@@ -1,3 +1,4 @@
+"""Purpose: Verify that the tracked sandbox template keeps the expected files and wiring"""
 from __future__ import annotations
 
 import json

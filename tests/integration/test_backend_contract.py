@@ -1,3 +1,4 @@
+"""Purpose: Verify the end-to-end backend response contract expected by Label Studio clients"""
 from __future__ import annotations
 
 from birdsys.ml_backend.app.predictors.model_a_yolo import Detection

@@ -1,3 +1,4 @@
+"""Purpose: Provide shared helpers for versioned report directories and report comparisons"""
 from __future__ import annotations
 
 from pathlib import Path

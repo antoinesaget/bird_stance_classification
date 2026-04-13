@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Purpose: Execute an ops script inside a remote checkout while forwarding the approved env variables.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"

@@ -1,3 +1,4 @@
+# Purpose: Define the workspace package, shared dependencies, and test discovery for the full monorepo.
 [build-system]
 requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"

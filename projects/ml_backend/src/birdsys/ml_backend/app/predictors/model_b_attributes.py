@@ -1,3 +1,4 @@
+"""Purpose: Load Model B and turn detections into the attribute predictions returned to Label Studio"""
 from __future__ import annotations
 
 from dataclasses import dataclass
