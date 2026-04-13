@@ -100,7 +100,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         from PIL import Image, ImageOps
     except ModuleNotFoundError as exc:
-        raise RuntimeError("Pillow is required. Install dependencies with `uv sync --python 3.11`.") from exc
+        raise RuntimeError("Pillow is required. Install dependencies with `make bootstrap` or `pip install -e .[dev]`.") from exc
 
     data_root = Path(args.data_root).expanduser().resolve()
     if not data_root.exists():

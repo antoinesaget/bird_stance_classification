@@ -119,9 +119,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         import duckdb
     except ModuleNotFoundError as exc:
-        raise RuntimeError("duckdb is required. Install dependencies with `uv sync --python 3.11`.") from exc
+        raise RuntimeError("duckdb is required. Install dependencies with `make bootstrap` or `pip install -e .[dev]`.") from exc
     if importlib.util.find_spec("pandas") is None:
-        raise RuntimeError("pandas is required. Install dependencies with `uv sync --python 3.11`.")
+        raise RuntimeError("pandas is required. Install dependencies with `make bootstrap` or `pip install -e .[dev]`.")
 
     if args.train_pct + args.val_pct + args.test_pct != 100:
         raise ValueError("train/val/test percentages must sum to 100")

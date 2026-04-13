@@ -62,7 +62,6 @@ Prepare the `q60` mirror and task bundle:
 
 ```bash
 make truenas-prepare-lines-batch \
-  LINES_PROJECT_ID=7 \
   LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60 \
   LINES_JPEG_QUALITY=60 \
   LINES_SAMPLE_SIZE=5000 \

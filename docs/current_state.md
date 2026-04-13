@@ -1,11 +1,13 @@
 # Current Live State
 
-Last refreshed: 2026-03-26
+Last refreshed: 2026-04-13 14:01 CEST
 
 ## Repo / Branch State
 
 - Active deployed branch: `main`
-- Local, `iats`, and TrueNAS should all stay on the same latest commit of `main`
+- Local, `iats`, and TrueNAS are aligned on commit `0e68dc2da9a96094d83af2e080b7f46ec7d7d31e`
+- `iats` sparse checkout: `ops`, `projects/datasets`, `projects/ml_backend`, `projects/ml_experiments`, `shared`, `workspace_bootstrap`
+- TrueNAS sparse checkout: `ops`, `projects/datasets`, `projects/labelstudio`, `shared`, `workspace_bootstrap`
 - To confirm the exact live commit on any host:
 
 ```bash
@@ -34,11 +36,8 @@ git rev-parse HEAD
 - Project `7`
   - title: `Black Wing Stilts 1`
   - tasks: `5000`
-  - ML backend connection:
-    - id: `4`
-    - title: `birdsys-lines-v1`
-    - url: `http://192.168.0.42:9090`
-    - state: `Connected`
+  - project model version: `birdsys-lines-v1`
+  - task list API reports `total_predictions=5004`
 
 ## Live ML Backend On `iats`
 
@@ -51,7 +50,7 @@ git rev-parse HEAD
   - `model_b_schema_version=annotation_schema_v2`
 - Detector:
   - served weights: `/data/birds_project/models/detector/served/model_a/current/weights.pt`
-  - current release id: `20260325T081936Z`
+  - current release id: `20260412T140934Z`
   - source: `/home/antoine/_archives/bird_stance_classification/2026-04-12/repo-root/weights/yolo11m.pt`
 - Attribute model:
   - served checkpoint: `/data/birds_project/models/attributes/served/model_b/current/checkpoint.pt`
@@ -75,7 +74,7 @@ git rev-parse HEAD
 
 ## Project 7 Prediction Prefill Status
 
-- Stored predictions on project `7`: `5000 / 5000`
+- Stored prediction rows reported by the task list API on project `7`: `5004`
 - Latest persisted prefill report summary:
   - `scanned_tasks=5000`
   - `eligible_tasks=40`
@@ -87,6 +86,7 @@ git rev-parse HEAD
 - Interpretation:
   - all tasks now have persisted prediction rows
   - the final 40 tasks were stored as explicit empty predictions
+  - the live project currently reports `5004` total prediction rows over `5000` tasks
   - project `7` should no longer need on-the-fly backend calls for untouched tasks in the current batch
 
 ## Cleanup Archives

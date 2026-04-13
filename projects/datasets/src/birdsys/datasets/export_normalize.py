@@ -347,7 +347,7 @@ def write_deterministic_parquet(df, out_path: pathlib.Path) -> None:
         import pyarrow as pa
         import pyarrow.parquet as pq
     except ModuleNotFoundError as exc:
-        raise RuntimeError("pyarrow is required. Install dependencies with `uv sync --python 3.11`.") from exc
+        raise RuntimeError("pyarrow is required. Install dependencies with `make bootstrap` or `pip install -e .[dev]`.") from exc
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     table = pa.Table.from_pandas(df, preserve_index=False)
@@ -370,7 +370,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         import pandas as pd
     except ModuleNotFoundError as exc:
-        raise RuntimeError("pandas is required. Install dependencies with `uv sync --python 3.11`.") from exc
+        raise RuntimeError("pandas is required. Install dependencies with `make bootstrap` or `pip install -e .[dev]`.") from exc
 
     export_json = pathlib.Path(args.export_json).expanduser().resolve()
     if not export_json.exists():

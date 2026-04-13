@@ -35,6 +35,7 @@ Critical values:
   - `MODEL_A_DEVICE=0`
   - `MODEL_A_BOOTSTRAP_WEIGHTS`
   - `MODEL_A_SERVING_WEIGHTS`
+  - `MODEL_B_SERVING_ARTIFACT=/data/birds_project/models/attributes/served/model_b/current`
 - `projects/labelstudio/deploy/env/truenas.env`
   - `TRUENAS_APP_ID=bird-stance-classification`
   - `BIRDS_DATA_ROOT=/mnt/tank/media/birds_project`
@@ -114,7 +115,7 @@ make iats-deploy-ml
 Prepare the `q60` mirror and import bundle:
 
 ```bash
-make truenas-prepare-lines-batch LINES_PROJECT_ID=7 LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60
+make truenas-prepare-lines-batch LINES_BATCH_NAME=lines_bw_stilts_5k_seed_20260325_q60
 ```
 
 Import the generated task bundle into project `7`:

@@ -17,7 +17,6 @@ dependencies = [
   "pandas>=2.2,<3",
   "pillow>=10,<12",
   "pyarrow>=18,<20",
-  "pytest>=8.3,<9",
   "pydantic>=2.10,<3",
   "python-dotenv>=1.0,<2",
   "pyyaml>=6.0,<7",
@@ -30,7 +29,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["ruff>=0.9,<1"]
+dev = [
+  "pytest>=8.3,<9",
+  "ruff>=0.9,<1",
+  "vulture>=2.16,<3",
+]
 
 [project.scripts]
 birdsys = "birdsys_workspace.cli:main"

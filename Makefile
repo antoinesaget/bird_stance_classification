@@ -32,7 +32,7 @@ TRUENAS_REMOTE_REPO_URL ?= $(PUBLIC_REPO_URL)
 
 bootstrap:
 	python3 -m venv "$(REPO_ROOT)/.venv"
-	"$(PIP_BIN)" install -e .
+	"$(PIP_BIN)" install -e ".[dev]"
 
 check:
 	PYTHONPATH="$(WORKSPACE_PYTHONPATH)" "$(PYTHON_BIN)" -m pytest -q tests/smoke

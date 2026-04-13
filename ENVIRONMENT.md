@@ -106,7 +106,8 @@ On TrueNAS for `lines_project`:
 ## Verification Commands
 
 ```bash
-uv run pytest -q tests/smoke
+make bootstrap
+./.venv/bin/pytest -q tests/smoke
 make smoke-remote
 ssh iats 'curl -sS http://127.0.0.1:9090/health'
 ssh truenas 'midclt call app.get_instance bird-stance-classification'

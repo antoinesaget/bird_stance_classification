@@ -64,11 +64,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         import pandas as pd
     except ModuleNotFoundError as exc:
-        raise RuntimeError("pandas is required. Install dependencies with `uv sync --python 3.11`.") from exc
+        raise RuntimeError("pandas is required. Install dependencies with `make bootstrap` or `pip install -e .[dev]`.") from exc
     try:
         from PIL import Image
     except ModuleNotFoundError as exc:
-        raise RuntimeError("Pillow is required. Install dependencies with `uv sync --python 3.11`.") from exc
+        raise RuntimeError("Pillow is required. Install dependencies with `make bootstrap` or `pip install -e .[dev]`.") from exc
 
     data_root = pathlib.Path(args.data_root).expanduser().resolve()
     layout = ensure_layout(data_root)
