@@ -2,7 +2,7 @@
 
 ## 1) Keep The Three Checkouts In Sync
 
-Use the same branch on local, `iats`, and TrueNAS. The live branch is `main`.
+Use the same branch on local, `iats`, and TrueNAS. The live branch is `main`. Local and `iats` should remain identical full checkouts. TrueNAS should stay on the same commit but only keep the minimal Label Studio deployment checkout.
 
 ```bash
 make iats-pull

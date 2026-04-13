@@ -7,10 +7,11 @@
   - light smoke tests
   - remote orchestration
 - `iats`
-  - primary engineering checkout
+  - full engineering checkout matching local
   - training and experiment host
   - live ML backend host
 - TrueNAS
+  - minimal deployment checkout for Label Studio only
   - stable Label Studio/Postgres/public UI host
   - canonical storage host for bird and lines datasets
 

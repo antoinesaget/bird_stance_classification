@@ -3,7 +3,7 @@ SHELL := /bin/bash
 REPO_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 PYTHON_BIN ?= $(REPO_ROOT)/.venv/bin/python
 PIP_BIN ?= $(REPO_ROOT)/.venv/bin/pip
-WORKSPACE_PYTHONPATH := $(REPO_ROOT)/ops/src:$(REPO_ROOT)/shared/birdsys_core/src:$(REPO_ROOT)/projects/labelstudio/src:$(REPO_ROOT)/projects/datasets/src:$(REPO_ROOT)/projects/ml_backend/src:$(REPO_ROOT)/projects/ml_experiments/src
+WORKSPACE_PYTHONPATH := $(REPO_ROOT)/workspace_bootstrap/src:$(REPO_ROOT)/ops/src:$(REPO_ROOT)/shared/birdsys_core/src:$(REPO_ROOT)/projects/labelstudio/src:$(REPO_ROOT)/projects/datasets/src:$(REPO_ROOT)/projects/ml_backend/src:$(REPO_ROOT)/projects/ml_experiments/src
 
 DEPLOY_BRANCH ?= main
 PUBLIC_REPO_URL ?= https://github.com/antoinesaget/bird_stance_classification.git

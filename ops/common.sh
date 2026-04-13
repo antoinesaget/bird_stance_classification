@@ -30,6 +30,7 @@ repo_python_bin() {
 
 repo_pythonpath() {
   local parts=(
+    "$REPO_ROOT/workspace_bootstrap/src"
     "$REPO_ROOT/ops/src"
     "$REPO_ROOT/shared/birdsys_core/src"
     "$REPO_ROOT/projects/labelstudio/src"
@@ -44,7 +45,7 @@ repo_pythonpath() {
 
 run_birdsys() {
   local python_bin="${PYTHON_BIN:-$(repo_python_bin)}"
-  PYTHONPATH="$(repo_pythonpath)${PYTHONPATH:+:$PYTHONPATH}" "$python_bin" -m birdsys.cli.main "$@"
+  PYTHONPATH="$(repo_pythonpath)${PYTHONPATH:+:$PYTHONPATH}" "$python_bin" -m birdsys_workspace.cli "$@"
 }
 
 source_env() {

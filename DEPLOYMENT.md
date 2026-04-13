@@ -12,10 +12,12 @@ The live branch is `main`. The Makefile already defaults `DEPLOY_BRANCH` to `mai
 
 - `iats`
   - repo checkout: `/home/antoine/bird_stance_classification`
+  - same full tracked checkout as local
   - training and experiment host
   - live ML backend host
 - TrueNAS
   - repo checkout: `/mnt/apps/code/bird_stance_classification`
+  - minimal deployment checkout: `ops`, `projects/labelstudio`, `shared`, `workspace_bootstrap`
   - live Label Studio/Postgres/public UI host
   - canonical storage host for `birds_project` and `lines_project`
 - Local

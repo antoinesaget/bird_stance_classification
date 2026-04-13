@@ -5,9 +5,10 @@ Last refreshed: 2026-04-13 14:01 CEST
 ## Repo / Branch State
 
 - Active deployed branch: `main`
-- Local, `iats`, and TrueNAS are aligned on commit `0e68dc2da9a96094d83af2e080b7f46ec7d7d31e`
-- `iats` sparse checkout: `ops`, `projects/datasets`, `projects/ml_backend`, `projects/ml_experiments`, `shared`, `workspace_bootstrap`
-- TrueNAS sparse checkout: `ops`, `projects/datasets`, `projects/labelstudio`, `shared`, `workspace_bootstrap`
+- Local, `iats`, and TrueNAS are aligned on commit `1a0a5e13486b6942bf303e1ba40c3179a73b86ad`
+- Local: full checkout
+- `iats`: full checkout matching local
+- TrueNAS sparse deployment checkout: `ops`, `projects/labelstudio`, `shared`, `workspace_bootstrap`
 - To confirm the exact live commit on any host:
 
 ```bash
@@ -21,10 +22,12 @@ git rev-parse HEAD
   - orchestration, tests, and repo maintenance
 - `iats`
   - `/home/antoine/bird_stance_classification`
+  - full engineering checkout
   - live ML backend
   - training and experiment host
 - TrueNAS
   - `/mnt/apps/code/bird_stance_classification`
+  - minimal Label Studio deployment checkout
   - live Label Studio/Postgres/public UI
 
 ## Live Projects On TrueNAS
