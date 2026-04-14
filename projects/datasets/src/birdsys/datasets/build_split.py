@@ -20,6 +20,7 @@ from birdsys.datasets.dataset_common import (
     embed_plot_block,
     format_count,
     import_pyplot,
+    percentage_distribution,
     json_safe,
     save_plot,
     visible_label_counts,
@@ -299,12 +300,16 @@ def render_split_plots(
         width = 0.24
         positions = list(range(len(labels)))
         for idx, role in enumerate(roles):
-            values = [int(split_supports[role].get(field, {}).get(label, 0)) for label in labels]
+            distribution = percentage_distribution(split_supports[role].get(field, {}))
+            values = [float(distribution.get(label, 0.0)) for label in labels]
             x_values = [position + ((idx - 1) * width) for position in positions]
-            ax.bar(x_values, values, width=width, label=role, color=colors[role])
+            bars = ax.bar(x_values, values, width=width, label=role, color=colors[role])
+            annotate_bars(ax, bars, [f"{value:.1f}%" for value in values], fontsize=7, padding=2.0)
+        add_bar_headroom(ax, [100.0], extra_ratio=0.05, min_top=100.0)
         ax.set_xticks(positions)
         ax.set_xticklabels(labels, rotation=35, ha="right")
         ax.set_title(field)
+        ax.set_ylabel("Percent")
     axes[0][0].legend(loc="upper right")
     fig.suptitle("Current Class Supports", y=0.995)
     out["current_class_supports"] = save_plot(fig, plots_dir / "current_class_supports", tight_rect=(0.0, 0.0, 1.0, 0.97))
@@ -359,18 +364,33 @@ def render_split_plots(
             ax.text(0.5, 0.5, "No visible labels", ha="center", va="center")
             ax.set_axis_off()
             continue
-        values = []
-        for label in labels:
-            base = int(split_supports["all_data"].get(field, {}).get(label, 0))
-            test = int(split_supports["test"].get(field, {}).get(label, 0))
-            values.append(0.0 if base <= 0 else (100.0 * float(test) / float(base)))
-        bars = ax.bar(range(len(labels)), values, color="#8AB17D")
-        add_bar_headroom(ax, values, extra_ratio=0.22, min_top=5.0)
+        width = 0.34
+        positions = list(range(len(labels)))
+        all_values = [int(split_supports["all_data"].get(field, {}).get(label, 0)) for label in labels]
+        test_values = [int(split_supports["test"].get(field, {}).get(label, 0)) for label in labels]
+        all_bars = ax.bar(
+            [position - (width / 2.0) for position in positions],
+            all_values,
+            width=width,
+            color="#C9D6DF",
+            label="all_data",
+        )
+        test_bars = ax.bar(
+            [position + (width / 2.0) for position in positions],
+            test_values,
+            width=width,
+            color="#8AB17D",
+            label="test",
+        )
+        add_bar_headroom(ax, all_values + test_values, extra_ratio=0.22, min_top=5.0)
         ax.set_xticks(range(len(labels)))
         ax.set_xticklabels(labels, rotation=35, ha="right")
         ax.set_title(field)
-        annotate_bars(ax, bars, [f"{value:.1f}%" for value in values], fontsize=8)
-    fig.suptitle("Test Support Coverage vs All Data", y=0.995)
+        annotate_bars(ax, all_bars, [format_count(value) for value in all_values], fontsize=7)
+        annotate_bars(ax, test_bars, [format_count(value) for value in test_values], fontsize=7)
+        ax.set_ylabel("Count")
+    axes[0][0].legend(loc="upper right")
+    fig.suptitle("Test Support Coverage vs All Data (Counts)", y=0.995)
     out["test_support_coverage"] = save_plot(fig, plots_dir / "test_support_coverage", tight_rect=(0.0, 0.0, 1.0, 0.97))
     plt.close(fig)
 

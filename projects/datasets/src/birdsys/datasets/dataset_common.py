@@ -23,6 +23,16 @@ def visible_label_counts(frame) -> dict[str, dict[str, int]]:
     }
 
 
+def percentage_distribution(counts: dict[str, int]) -> dict[str, float]:
+    total = sum(int(value) for value in counts.values())
+    if total <= 0:
+        return {key: 0.0 for key in counts}
+    return {
+        key: (100.0 * float(int(value)) / float(total))
+        for key, value in counts.items()
+    }
+
+
 def diff_nested_counts(
     current: dict[str, dict[str, int]],
     previous: dict[str, dict[str, int]],
