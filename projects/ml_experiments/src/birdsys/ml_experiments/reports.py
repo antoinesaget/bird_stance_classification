@@ -167,7 +167,7 @@ def _plot_visible_supports(out_path: Path, *, result: Any) -> None:
     plt.close(fig)
 
 
-def _plot_per_class_f1(out_path: Path, *, result: Any) -> None:
+def _plot_per_class_metrics(out_path: Path, *, result: Any) -> None:
     if not result.per_class_metrics:
         return
     df = pd.DataFrame(result.per_class_metrics)
@@ -182,14 +182,16 @@ def _plot_per_class_f1(out_path: Path, *, result: Any) -> None:
         axes = [axes]
     for ax, head in zip(axes, heads):
         head_df = df[df["head"] == head].copy().sort_values(["support", "label"], ascending=[False, True])
-        ax.bar(head_df["label"], head_df["f1"], color="#2A9D8F", alpha=0.85, label="f1")
-        ax.plot(head_df["label"], head_df["recall"], color="#E76F51", marker="o", linewidth=1.5, label="recall")
+        x = np.arange(len(head_df))
+        width = 0.24
+        ax.bar(x - width, head_df["precision"], width=width, color="#264653", alpha=0.9, label="precision")
+        ax.bar(x, head_df["recall"], width=width, color="#E9C46A", alpha=0.9, label="recall")
+        ax.bar(x + width, head_df["f1"], width=width, color="#2A9D8F", alpha=0.9, label="f1")
         ax.set_ylim(0.0, 1.0)
         ax.set_title(f"{head.title()} Per-Class Metrics")
         ax.set_ylabel("Score")
-        ax.tick_params(axis="x", rotation=35)
-        for idx, (_, row) in enumerate(head_df.iterrows()):
-            ax.text(idx, float(row["f1"]) + 0.02, f"n={int(row['support'])}", ha="center", va="bottom", fontsize=7)
+        ax.set_xticks(x)
+        ax.set_xticklabels(head_df["label"].tolist(), rotation=35, ha="right")
         ax.legend()
     fig.tight_layout()
     fig.savefig(out_path, dpi=180)
@@ -228,21 +230,21 @@ def _write_evaluation_markdown_report(out_dir: Path, *, result: Any, outputs: di
         "",
         "- `accuracy` is the raw fraction of correct predictions on visible rows for a head. It is easy to read, but it can look strong even when the model mostly wins on the dominant classes.",
         "- `balanced_accuracy` averages recall across the classes that are actually present. It is the better quick check for unbalanced heads because each visible class counts equally.",
-        "- `macro_f2` weights recall more than precision. Use it when missing the right class matters more than occasionally predicting too broadly.",
-        "- `weighted_f1` weights each class by its support. It answers \"how good is the model on the dataset it actually saw,\" while `macro_f2` answers \"how good is it per class when recall matters more.\"",
-        "- In the per-class plot, the bar is `F1` and the line is `recall`. A low bar with a higher recall line usually means the class is found often but with poor precision. A high bar with a low recall line is uncommon; usually low recall drags F1 down too.",
-        "- The `n=` label above each class is the visible support for that class in the evaluated split, so treat tiny classes with extra caution.",
+        "- `macro_f1` gives each class equal weight, so it is the right quick summary when you want rare classes to matter as much as common ones.",
+        "- `weighted_f1` weights each class by its support, so it stays closer to the real dataset mix and is often higher when the common classes are easier.",
+        "- `precision` means: when the model predicts a class, how often is that prediction correct?",
+        "- `recall` means: when a class is truly present, how often does the model recover it?",
+        "- The per-class plot is a standard grouped-bar chart. For each class, compare the three bars side by side: low `precision` means too many false positives, low `recall` means too many misses, and `F1` summarizes the balance between the two.",
         "",
         "## Per-Head Metrics",
         "",
-        "| Head | Visible Support | Accuracy | Balanced Accuracy | Macro F1 | Macro F2 | Weighted F1 |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Head | Visible Support | Accuracy | Balanced Accuracy | Macro F1 | Weighted F1 |",
+        "| --- | ---: | ---: | ---: | ---: | ---: |",
     ]
     for head, metrics in sorted((result.per_head_metrics or {}).items()):
         lines.append(
             f"| `{head}` | `{int(metrics.get('visible_support', 0.0))}` | `{_format_metric(metrics.get('accuracy'))}` | "
             f"`{_format_metric(metrics.get('balanced_accuracy'))}` | `{_format_metric(metrics.get('macro_f1'))}` | "
-            f"`{_format_metric(metrics.get('macro_f2'))}` | "
             f"`{_format_metric(metrics.get('weighted_f1'))}` |"
         )
     lines.extend(
@@ -258,8 +260,8 @@ def _write_evaluation_markdown_report(out_dir: Path, *, result: Any, outputs: di
     if "visible_supports_png" in outputs:
         lines.append(f"![Visible supports]({_relative_md_path(outputs['visible_supports_png'], from_dir=out_dir)})")
         lines.append("")
-    if "per_class_f1_png" in outputs:
-        lines.append(f"![Per-class metrics]({_relative_md_path(outputs['per_class_f1_png'], from_dir=out_dir)})")
+    if "per_class_metrics_png" in outputs:
+        lines.append(f"![Per-class metrics]({_relative_md_path(outputs['per_class_metrics_png'], from_dir=out_dir)})")
         lines.append("")
     for key in sorted(outputs):
         if key.endswith("_confusion_matrix_png"):
@@ -327,10 +329,10 @@ def write_evaluation_report(out_dir: Path, result: Any) -> dict[str, Path]:
     if visible_supports_png.exists():
         outputs["visible_supports_png"] = visible_supports_png
 
-    per_class_f1_png = plots_dir / "per_class_metrics.png"
-    _plot_per_class_f1(per_class_f1_png, result=result)
-    if per_class_f1_png.exists():
-        outputs["per_class_f1_png"] = per_class_f1_png
+    per_class_metrics_png = plots_dir / "per_class_metrics.png"
+    _plot_per_class_metrics(per_class_metrics_png, result=result)
+    if per_class_metrics_png.exists():
+        outputs["per_class_metrics_png"] = per_class_metrics_png
 
     for head, matrix in result.confusion_matrices.items():
         confusion_csv = out_dir / f"{head}_confusion_matrix.csv"
