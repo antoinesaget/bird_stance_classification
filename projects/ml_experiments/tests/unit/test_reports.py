@@ -41,7 +41,11 @@ def test_write_evaluation_report_emits_standard_artifacts(tmp_path: Path) -> Non
 
     assert outputs["summary_json"].exists()
     assert outputs["summary_csv"].exists()
+    assert outputs["report_md"].exists()
     assert outputs["per_class_metrics_csv"].exists()
     assert outputs["predictions_parquet"].exists()
+    assert (tmp_path / "report" / "plots" / "per_head_metrics.png").exists()
+    assert (tmp_path / "report" / "plots" / "visible_supports.png").exists()
+    assert (tmp_path / "report" / "plots" / "per_class_metrics.png").exists()
     assert (tmp_path / "report" / "plots" / "behavior_confusion_matrix.png").exists()
     assert (tmp_path / "report" / "plots" / "metric_deltas_vs_baseline.png").exists()

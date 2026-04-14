@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from birdsys.core import diff_numeric_dict
@@ -115,6 +116,171 @@ def _plot_metric_delta(out_path: Path, *, title: str, deltas: dict[str, float]) 
     plt.close(fig)
 
 
+def _plot_per_head_metrics(out_path: Path, *, result: Any) -> None:
+    head_rows = []
+    for head, metrics in (result.per_head_metrics or {}).items():
+        head_rows.append(
+            {
+                "head": head,
+                "macro_f1": float(metrics.get("macro_f1", 0.0)),
+                "accuracy": float(metrics.get("accuracy", 0.0)),
+                "balanced_accuracy": float(metrics.get("balanced_accuracy", 0.0)),
+            }
+        )
+    if not head_rows:
+        return
+    df = pd.DataFrame(head_rows)
+    plt = _load_plt()
+    fig, ax = plt.subplots(figsize=(max(8, len(df) * 1.6), 5))
+    x = np.arange(len(df))
+    width = 0.24
+    ax.bar(x - width, df["macro_f1"], width=width, label="macro_f1", color="#2A9D8F")
+    ax.bar(x, df["accuracy"], width=width, label="accuracy", color="#264653")
+    ax.bar(x + width, df["balanced_accuracy"], width=width, label="balanced_accuracy", color="#E9C46A")
+    ax.set_ylim(0.0, 1.0)
+    ax.set_xticks(x)
+    ax.set_xticklabels(df["head"].tolist(), rotation=20, ha="right")
+    ax.set_ylabel("Score")
+    ax.set_title("Per-Head Summary Metrics")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=180)
+    plt.close(fig)
+
+
+def _plot_visible_supports(out_path: Path, *, result: Any) -> None:
+    rows = []
+    for head, metrics in (result.per_head_metrics or {}).items():
+        rows.append({"head": head, "visible_support": float(metrics.get("visible_support", 0.0))})
+    if not rows:
+        return
+    df = pd.DataFrame(rows)
+    plt = _load_plt()
+    fig, ax = plt.subplots(figsize=(max(8, len(df) * 1.4), 4.5))
+    bars = ax.bar(df["head"], df["visible_support"], color="#6D597A")
+    ax.set_ylabel("Rows")
+    ax.set_title("Visible Support by Head")
+    for bar, value in zip(bars, df["visible_support"].tolist()):
+        ax.text(bar.get_x() + (bar.get_width() / 2.0), value, f"{int(value)}", ha="center", va="bottom", fontsize=8)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=180)
+    plt.close(fig)
+
+
+def _plot_per_class_f1(out_path: Path, *, result: Any) -> None:
+    if not result.per_class_metrics:
+        return
+    df = pd.DataFrame(result.per_class_metrics)
+    if df.empty or "head" not in df.columns or "f1" not in df.columns:
+        return
+    heads = df["head"].dropna().unique().tolist()
+    if not heads:
+        return
+    plt = _load_plt()
+    fig, axes = plt.subplots(len(heads), 1, figsize=(10, max(4.5, len(heads) * 3.6)))
+    if len(heads) == 1:
+        axes = [axes]
+    for ax, head in zip(axes, heads):
+        head_df = df[df["head"] == head].copy().sort_values(["support", "label"], ascending=[False, True])
+        ax.bar(head_df["label"], head_df["f1"], color="#2A9D8F", alpha=0.85, label="f1")
+        ax.plot(head_df["label"], head_df["recall"], color="#E76F51", marker="o", linewidth=1.5, label="recall")
+        ax.set_ylim(0.0, 1.0)
+        ax.set_title(f"{head.title()} Per-Class Metrics")
+        ax.set_ylabel("Score")
+        ax.tick_params(axis="x", rotation=35)
+        for idx, (_, row) in enumerate(head_df.iterrows()):
+            ax.text(idx, float(row["f1"]) + 0.02, f"n={int(row['support'])}", ha="center", va="bottom", fontsize=7)
+        ax.legend()
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=180)
+    plt.close(fig)
+
+
+def _format_metric(value: Any) -> str:
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        return f"{float(value):.4f}"
+    return str(value)
+
+
+def _relative_md_path(path: Path, *, from_dir: Path) -> str:
+    return path.relative_to(from_dir).as_posix()
+
+
+def _write_evaluation_markdown_report(out_dir: Path, *, result: Any, outputs: dict[str, Path]) -> Path:
+    report_md = out_dir / "report.md"
+    lines = [
+        f"# Model B Evaluation Report: {out_dir.name}",
+        "",
+        "## Overview",
+        "",
+        f"- Checkpoint: `{result.checkpoint_path}`",
+        f"- Artifact mode: `{result.artifact_mode}`",
+        f"- Device: `{result.device}`",
+        f"- Image size: `{result.image_size}`",
+        f"- Schema version: `{result.schema_version}`",
+        f"- Primary score: `{_format_metric(result.aggregate_metrics.get('primary_score'))}`",
+        f"- Mean macro-F1: `{_format_metric(result.aggregate_metrics.get('mean_macro_f1'))}`",
+        f"- Support-weighted macro-F1: `{_format_metric(result.aggregate_metrics.get('support_weighted_macro_f1'))}`",
+        f"- Mean balanced accuracy: `{_format_metric(result.aggregate_metrics.get('mean_balanced_accuracy'))}`",
+        f"- Rows scored: `{result.diagnostics.to_dict().get('rows_scored')}`",
+        "",
+        "## Per-Head Metrics",
+        "",
+        "| Head | Visible Support | Accuracy | Balanced Accuracy | Macro F1 | Weighted F1 |",
+        "| --- | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for head, metrics in sorted((result.per_head_metrics or {}).items()):
+        lines.append(
+            f"| `{head}` | `{int(metrics.get('visible_support', 0.0))}` | `{_format_metric(metrics.get('accuracy'))}` | "
+            f"`{_format_metric(metrics.get('balanced_accuracy'))}` | `{_format_metric(metrics.get('macro_f1'))}` | "
+            f"`{_format_metric(metrics.get('weighted_f1'))}` |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Plots",
+            "",
+        ]
+    )
+    if "per_head_metrics_png" in outputs:
+        lines.append(f"![Per-head metrics]({_relative_md_path(outputs['per_head_metrics_png'], from_dir=out_dir)})")
+        lines.append("")
+    if "visible_supports_png" in outputs:
+        lines.append(f"![Visible supports]({_relative_md_path(outputs['visible_supports_png'], from_dir=out_dir)})")
+        lines.append("")
+    if "per_class_f1_png" in outputs:
+        lines.append(f"![Per-class metrics]({_relative_md_path(outputs['per_class_f1_png'], from_dir=out_dir)})")
+        lines.append("")
+    for key in sorted(outputs):
+        if key.endswith("_confusion_matrix_png"):
+            lines.append(f"### {key.replace('_confusion_matrix_png', '').replace('_', ' ').title()}")
+            lines.append("")
+            lines.append(f"![{key}]({_relative_md_path(outputs[key], from_dir=out_dir)})")
+            lines.append("")
+    if "metric_delta_png" in outputs:
+        lines.extend(
+            [
+                "## Baseline Delta",
+                "",
+                f"![Metric deltas vs baseline]({_relative_md_path(outputs['metric_delta_png'], from_dir=out_dir)})",
+                "",
+            ]
+        )
+    lines.extend(
+        [
+            "## Files",
+            "",
+            f"- Markdown report: `{report_md.name}`",
+            f"- Summary JSON: `{outputs['summary_json'].name}`",
+            f"- Summary CSV: `{outputs['summary_csv'].name}`",
+            f"- Per-class metrics CSV: `{outputs['per_class_metrics_csv'].name}`",
+            f"- Predictions Parquet: `{outputs['predictions_parquet'].name}`",
+        ]
+    )
+    report_md.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return report_md
+
+
 def write_evaluation_report(out_dir: Path, result: Any) -> dict[str, Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     plots_dir = out_dir / "plots"
@@ -141,6 +307,21 @@ def write_evaluation_report(out_dir: Path, result: Any) -> dict[str, Path]:
         "predictions_parquet": predictions_parquet,
     }
 
+    per_head_metrics_png = plots_dir / "per_head_metrics.png"
+    _plot_per_head_metrics(per_head_metrics_png, result=result)
+    if per_head_metrics_png.exists():
+        outputs["per_head_metrics_png"] = per_head_metrics_png
+
+    visible_supports_png = plots_dir / "visible_supports.png"
+    _plot_visible_supports(visible_supports_png, result=result)
+    if visible_supports_png.exists():
+        outputs["visible_supports_png"] = visible_supports_png
+
+    per_class_f1_png = plots_dir / "per_class_metrics.png"
+    _plot_per_class_f1(per_class_f1_png, result=result)
+    if per_class_f1_png.exists():
+        outputs["per_class_f1_png"] = per_class_f1_png
+
     for head, matrix in result.confusion_matrices.items():
         confusion_csv = out_dir / f"{head}_confusion_matrix.csv"
         pd.DataFrame(matrix, index=result.id_to_label[head], columns=result.id_to_label[head]).to_csv(confusion_csv)
@@ -162,6 +343,7 @@ def write_evaluation_report(out_dir: Path, result: Any) -> dict[str, Path]:
         _plot_metric_delta(delta_png, title="Metric Deltas vs Baseline", deltas=combined)
         outputs["metric_delta_png"] = delta_png
 
+    outputs["report_md"] = _write_evaluation_markdown_report(out_dir, result=result, outputs=outputs)
     return outputs
 
 

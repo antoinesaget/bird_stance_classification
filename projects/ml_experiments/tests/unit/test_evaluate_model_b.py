@@ -55,6 +55,7 @@ def test_evaluate_model_b_uses_default_served_artifact_path(tmp_path: Path, monk
         lambda out_dir, result: {
             "summary_json": out_dir / "summary.json",
             "summary_csv": out_dir / "summary.csv",
+            "report_md": out_dir / "report.md",
             "per_class_metrics_csv": out_dir / "per_class_metrics.csv",
             "predictions_parquet": out_dir / "predictions.parquet",
         },

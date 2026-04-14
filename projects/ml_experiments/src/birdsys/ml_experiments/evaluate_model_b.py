@@ -75,6 +75,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"output_dir={out_dir}")
     print(f"summary_json={outputs['summary_json']}")
     print(f"summary_csv={outputs['summary_csv']}")
+    print(f"report_md={outputs['report_md']}")
     print(f"per_class_metrics_csv={outputs['per_class_metrics_csv']}")
     print(f"predictions_parquet={outputs['predictions_parquet']}")
     print(f"evaluation_json={raw_json}")
