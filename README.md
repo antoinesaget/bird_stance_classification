@@ -21,7 +21,7 @@ README.md
 - `shared/birdsys_core`: shared label taxonomies, shared model definitions, and Model B artifact loading helpers
 - `projects/datasets`: Label Studio export normalization, stable split building, named crop artifacts, and pooled dataset building
 - `projects/labelstudio`: Label Studio API workflows, the versioned annotation extraction command, task batch generation, prediction prefill, and TrueNAS deployment assets
-- `projects/ml_backend`: FastAPI prediction service, model promotion helper, Dockerfile, and `iats` deployment assets
+- `projects/ml_backend`: FastAPI prediction service, model promotion helper, Dockerfile, and `ai` deployment assets
 - `projects/ml_experiments`: Model B training on `train_pool` / `all_data`, grouped CV from stored folds, offline evaluation, and the remaining experiment config
 - focused extraction tests under `projects/datasets/tests` and `projects/labelstudio/tests`
 
@@ -37,12 +37,12 @@ README.md
 ## Host Roles
 
 - Local: source-of-truth engineering checkout
-- `iats`: full checkout, training host, experiment host, live ML backend host
-- TrueNAS: minimal Label Studio deployment checkout, Postgres host, public UI host, canonical bird and lines storage host
+- `ai`: full checkout, headless training host, experiment host, live ML backend host
+- TrueNAS: minimal Label Studio deployment checkout, Postgres host, public UI host, canonical bird storage host
 
 ## Deployment Surfaces
 
-- `projects/ml_backend/deploy/docker-compose.iats-ml.yml`
+- `projects/ml_backend/deploy/docker-compose.ai-ml.yml`
 - `projects/labelstudio/deploy/docker-compose.truenas.yml`
 
 ## Canonical Ops Doc

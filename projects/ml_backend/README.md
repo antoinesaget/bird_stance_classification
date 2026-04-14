@@ -11,15 +11,15 @@ This subproject is the remaining served inference surface for BirdSys.
 - `src/birdsys/ml_backend/app/response_contract.py`: response shaping helpers
 - `src/birdsys/ml_backend/promote_model.py`: promote a candidate artifact into the served release layout
 - `Dockerfile`: container build for the backend
-- `deploy/docker-compose.iats-ml.yml`: live `iats` deployment
-- `deploy/env/iats.env.example`: example environment for the `iats` deploy
+- `deploy/docker-compose.ai-ml.yml`: live `ai` deployment
+- `deploy/env/ai.env.example`: example environment for the `ai` deploy
 
 ## Runtime Shape
 
 - Model A is a YOLO detector.
 - Model B is an attribute predictor that can load an artifact bundle or fall back to heuristics.
 - The backend is meant to serve Label Studio-compatible predictions on port `9090`.
-- `iats` is the intended live host for this service.
+- `ai` is the intended live host for this service.
 
 ## Current Shape
 

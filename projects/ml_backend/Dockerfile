@@ -1,4 +1,4 @@
-# Purpose: Build the production ML backend image used on the iats host.
+# Purpose: Build the production ML backend image used on the ai host.
 FROM python:3.11-slim
 
 WORKDIR /app

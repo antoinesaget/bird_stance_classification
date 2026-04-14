@@ -1,4 +1,4 @@
-# Purpose: Define the ML backend deployment used on the iats host.
+# Purpose: Define the ML backend deployment used on the ai host.
 services:
   ml-backend:
     build:

@@ -18,7 +18,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--base-url", required=True, help="Label Studio base URL")
     parser.add_argument("--api-token", required=True, help="Label Studio API token or refresh token")
     parser.add_argument("--project-id", required=True, type=int, help="Target Label Studio project ID")
-    parser.add_argument("--ml-backend-url", required=True, help="ML backend base URL, e.g. http://192.168.0.42:9090")
+    parser.add_argument("--ml-backend-url", required=True, help="ML backend base URL, e.g. http://ai.tahr-hoki.ts.net:9090")
     parser.add_argument("--task-page-size", type=int, default=100, help="Task page size when scanning the project")
     parser.add_argument("--predict-batch-size", type=int, default=16, help="Tasks per /predict call")
     parser.add_argument("--import-batch-size", type=int, default=100, help="Predictions per Label Studio import call")

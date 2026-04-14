@@ -6,7 +6,7 @@ This is the single canonical operations document for the current cleaned repo. I
 
 - Active branch for deployments: `main`
 - Active deployment surfaces:
-  - `projects/ml_backend/deploy/docker-compose.iats-ml.yml`
+  - `projects/ml_backend/deploy/docker-compose.ai-ml.yml`
   - `projects/labelstudio/deploy/docker-compose.truenas.yml`
 - Removed from the repo:
   - root `Makefile`
@@ -19,9 +19,9 @@ This is the single canonical operations document for the current cleaned repo. I
   - source-of-truth engineering checkout
   - repo maintenance
   - remote orchestration when needed
-- `iats`
+- `ai`
   - full engineering checkout matching local
-  - training and experiment host
+  - headless training and experiment host
   - live ML backend host
 - TrueNAS
   - minimal deployment checkout for Label Studio
@@ -35,7 +35,7 @@ This is the single canonical operations document for the current cleaned repo. I
 - Repo root: `/Users/antoine/truenas_migration/bird_stance_classification`
 - Archive root for local cleanup and old snapshots: `/Users/antoine/truenas_migration/_archives/bird_stance_classification`
 
-### `iats`
+### `ai`
 
 - Repo checkout: `/home/antoine/bird_stance_classification`
 - Bird data home: `/data/birds`
@@ -64,7 +64,7 @@ TrueNAS is authoritative for:
 - `birds/<species_slug>/labelstudio/images_compressed`
 - `birds/<species_slug>/labelstudio/exports`
 
-`iats` owns:
+`ai` owns:
 
 - normalized datasets used for training
 - derived training artifacts
@@ -72,10 +72,10 @@ TrueNAS is authoritative for:
 
 ## Deployment Files
 
-### ML Backend on `iats`
+### ML Backend on `ai`
 
-- Compose file: `projects/ml_backend/deploy/docker-compose.iats-ml.yml`
-- Example env file: `projects/ml_backend/deploy/env/iats.env.example`
+- Compose file: `projects/ml_backend/deploy/docker-compose.ai-ml.yml`
+- Example env file: `projects/ml_backend/deploy/env/ai.env.example`
 - Container name: `birds-ml-backend`
 - Port mapping default: `9090:9090`
 - Mounted data roots:
@@ -114,7 +114,7 @@ Expected key environment values:
 - `LABEL_STUDIO_URL=https://birds.ashs.live`
 - `LABEL_STUDIO_HOST=https://birds.ashs.live`
 - `LABEL_STUDIO_API_TOKEN`
-- `LABEL_STUDIO_ML_BACKEND_URL=http://192.168.0.42:9090`
+- `LABEL_STUDIO_ML_BACKEND_URL=http://ai.tahr-hoki.ts.net:9090`
 - `LABEL_STUDIO_PGDATA_DIR=/mnt/apps/configs/bird-stance-classification/postgres`
 - `LABEL_STUDIO_APP_DATA_DIR=/mnt/apps/configs/bird-stance-classification/labelstudio_data`
 
@@ -122,7 +122,7 @@ Expected key environment values:
 
 ### ML Backend
 
-- Runs on `iats`
+- Runs on `ai`
 - GPU-backed
 - `/health` should report:
   - `status=UP`
@@ -134,7 +134,7 @@ Expected key environment values:
 
 - Public URL: [birds.ashs.live](https://birds.ashs.live)
 - Stable state lives on TrueNAS only
-- Expected ML backend target: `http://192.168.0.42:9090`
+- Expected ML backend target: `http://ai.tahr-hoki.ts.net:9090`
 
 ## Current Repo Reality
 
