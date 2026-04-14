@@ -74,6 +74,11 @@ def _safe_div(numerator: float, denominator: float) -> float:
     return float(numerator) / float(denominator)
 
 
+def _fbeta(precision: float, recall: float, *, beta: float) -> float:
+    beta_sq = float(beta) * float(beta)
+    return _safe_div((1.0 + beta_sq) * precision * recall, (beta_sq * precision) + recall)
+
+
 def compute_head_metrics(
     *,
     head: str,
@@ -91,9 +96,11 @@ def compute_head_metrics(
     precision_values: list[float] = []
     recall_values: list[float] = []
     f1_values: list[float] = []
+    f2_values: list[float] = []
     weighted_precision = 0.0
     weighted_recall = 0.0
     weighted_f1 = 0.0
+    weighted_f2 = 0.0
 
     for class_idx, label in enumerate(labels):
         tp = float(cm[class_idx, class_idx])
@@ -103,14 +110,17 @@ def compute_head_metrics(
         predicted = int(predictions[class_idx])
         precision = _safe_div(tp, tp + fp)
         recall = _safe_div(tp, tp + fn)
-        f1 = _safe_div(2.0 * precision * recall, precision + recall)
+        f1 = _fbeta(precision, recall, beta=1.0)
+        f2 = _fbeta(precision, recall, beta=2.0)
         if support > 0:
             precision_values.append(precision)
             recall_values.append(recall)
             f1_values.append(f1)
+            f2_values.append(f2)
             weighted_precision += precision * support
             weighted_recall += recall * support
             weighted_f1 += f1 * support
+            weighted_f2 += f2 * support
         per_class_metrics.append(
             {
                 "head": head,
@@ -124,6 +134,7 @@ def compute_head_metrics(
                 "precision": float(precision),
                 "recall": float(recall),
                 "f1": float(f1),
+                "f2": float(f2),
             }
         )
 
@@ -136,9 +147,11 @@ def compute_head_metrics(
         "macro_precision": float(np.mean(precision_values)) if precision_values else 0.0,
         "macro_recall": float(np.mean(recall_values)) if recall_values else 0.0,
         "macro_f1": float(np.mean(f1_values)) if f1_values else 0.0,
+        "macro_f2": float(np.mean(f2_values)) if f2_values else 0.0,
         "weighted_precision": _safe_div(weighted_precision, total_support),
         "weighted_recall": _safe_div(weighted_recall, total_support),
         "weighted_f1": _safe_div(weighted_f1, total_support),
+        "weighted_f2": _safe_div(weighted_f2, total_support),
     }
     return HeadMetrics(
         summary_metrics=summary_metrics,

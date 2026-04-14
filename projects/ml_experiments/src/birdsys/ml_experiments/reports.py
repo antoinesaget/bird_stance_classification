@@ -224,15 +224,25 @@ def _write_evaluation_markdown_report(out_dir: Path, *, result: Any, outputs: di
         f"- Mean balanced accuracy: `{_format_metric(result.aggregate_metrics.get('mean_balanced_accuracy'))}`",
         f"- Rows scored: `{result.diagnostics.to_dict().get('rows_scored')}`",
         "",
+        "## How To Read This Report",
+        "",
+        "- `accuracy` is the raw fraction of correct predictions on visible rows for a head. It is easy to read, but it can look strong even when the model mostly wins on the dominant classes.",
+        "- `balanced_accuracy` averages recall across the classes that are actually present. It is the better quick check for unbalanced heads because each visible class counts equally.",
+        "- `macro_f2` weights recall more than precision. Use it when missing the right class matters more than occasionally predicting too broadly.",
+        "- `weighted_f1` weights each class by its support. It answers \"how good is the model on the dataset it actually saw,\" while `macro_f2` answers \"how good is it per class when recall matters more.\"",
+        "- In the per-class plot, the bar is `F1` and the line is `recall`. A low bar with a higher recall line usually means the class is found often but with poor precision. A high bar with a low recall line is uncommon; usually low recall drags F1 down too.",
+        "- The `n=` label above each class is the visible support for that class in the evaluated split, so treat tiny classes with extra caution.",
+        "",
         "## Per-Head Metrics",
         "",
-        "| Head | Visible Support | Accuracy | Balanced Accuracy | Macro F1 | Weighted F1 |",
-        "| --- | ---: | ---: | ---: | ---: | ---: |",
+        "| Head | Visible Support | Accuracy | Balanced Accuracy | Macro F1 | Macro F2 | Weighted F1 |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for head, metrics in sorted((result.per_head_metrics or {}).items()):
         lines.append(
             f"| `{head}` | `{int(metrics.get('visible_support', 0.0))}` | `{_format_metric(metrics.get('accuracy'))}` | "
             f"`{_format_metric(metrics.get('balanced_accuracy'))}` | `{_format_metric(metrics.get('macro_f1'))}` | "
+            f"`{_format_metric(metrics.get('macro_f2'))}` | "
             f"`{_format_metric(metrics.get('weighted_f1'))}` |"
         )
     lines.extend(

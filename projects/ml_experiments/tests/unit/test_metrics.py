@@ -21,6 +21,7 @@ def test_compute_multihead_metrics_tracks_per_class_and_aggregate_values() -> No
     assert result.summary_metrics["behavior_visible_support"] == 4.0
     assert result.summary_metrics["behavior_accuracy"] == 0.75
     assert result.summary_metrics["behavior_macro_f1"] < 1.0
+    assert result.summary_metrics["behavior_macro_f2"] < 1.0
     assert result.summary_metrics["stance_visible_support"] == 0.0
     assert result.aggregate_metrics["heads_with_support"] == 2.0
     assert result.aggregate_metrics["primary_score"] == result.aggregate_metrics["mean_macro_f1"]
@@ -28,6 +29,7 @@ def test_compute_multihead_metrics_tracks_per_class_and_aggregate_values() -> No
 
     behavior_rows = [row for row in result.per_class_metrics if row["head"] == "behavior"]
     assert any(row["label"] == ID_TO_LABELS["behavior"][0] and row["support"] == 2 for row in behavior_rows)
+    assert all("f2" in row for row in behavior_rows)
 
 
 def test_compute_multihead_metrics_excludes_absent_heads_from_primary_score() -> None:
