@@ -29,3 +29,4 @@ This subproject owns the offline data-prep path from Label Studio export to spli
   - `crop_spec_id` artifacts under an annotation version for tunable crop sweeps
   - `ds_vNNN` pooled datasets with `test.parquet`, `train_pool.parquet`, `all_data.parquet`, and `fold_assignments.parquet`
 - Comparison to the previous extract, split, and dataset versions is first-class in the generated reports.
+- Split membership is now monotonic by `image_id`: historical test images stay in test, historical train-pool images stay out of future tests, and only never-before-seen images can grow the test set.

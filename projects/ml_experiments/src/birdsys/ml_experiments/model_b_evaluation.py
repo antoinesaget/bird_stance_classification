@@ -1,11 +1,10 @@
-"""Purpose: Run offline evaluation for Model B artifacts and summarize the resulting metrics"""
+"""Purpose: Run offline evaluation for Model B artifacts and summarize the resulting metrics."""
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pandas as pd
 import torch
 from PIL import Image
@@ -13,11 +12,6 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 
 from birdsys.core.attributes import (
-    BEHAVIOR_TO_ID,
-    READABILITY_TO_ID,
-    SPECIE_TO_ID,
-    STANCE_TO_ID,
-    SUBSTRATE_TO_ID,
     compute_head_masks,
     normalize_behavior,
     normalize_choice,
@@ -25,28 +19,22 @@ from birdsys.core.attributes import (
     normalize_substrate,
 )
 from birdsys.core.model_b_artifacts import (
-    HEADS,
-    LoadedModelBArtifact,
     apply_prediction_guards,
     decode_head_logits,
     fallback_label,
     load_model_b_artifact,
 )
-from birdsys.ml_experiments.metrics import confusion_matrix, macro_f1
 
-CONFUSION_HEADS = ["behavior", "substrate", "stance"]
-LABEL_MAPS = {
-    "readability": READABILITY_TO_ID,
-    "specie": SPECIE_TO_ID,
-    "behavior": BEHAVIOR_TO_ID,
-    "substrate": SUBSTRATE_TO_ID,
-    "stance": STANCE_TO_ID,
-}
-ID_TO_LABELS = {
-    head: [label for label, _ in sorted(mapping.items(), key=lambda item: item[1])]
-    for head, mapping in LABEL_MAPS.items()
-}
-HEAD_CLASS_COUNTS = {head: len(labels) for head, labels in ID_TO_LABELS.items()}
+from .common import (
+    CONFUSION_HEADS,
+    HEADS,
+    ID_TO_LABELS,
+    LABEL_MAPS,
+    collect_visible_label_counts,
+    summarize_dataset_labels,
+)
+from .metrics import compute_multihead_metrics
+from .reports import build_metric_delta
 
 
 @dataclass(frozen=True)
@@ -57,6 +45,35 @@ class EvaluationDiagnostics:
     stance_suppressions_non_relevant: int
     prediction_label_counts: dict[str, dict[str, int]]
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "rows_scored": int(self.rows_scored),
+            "unsupported_label_coercions": self.unsupported_label_coercions,
+            "unreadable_or_incorrect_suppressions": self.unreadable_or_incorrect_suppressions,
+            "stance_suppressions_non_relevant": int(self.stance_suppressions_non_relevant),
+            "prediction_label_counts": self.prediction_label_counts,
+        }
+
+
+@dataclass(frozen=True)
+class EvaluationComparison:
+    baseline_checkpoint_path: str
+    baseline_artifact_mode: str
+    baseline_summary_metrics: dict[str, float]
+    baseline_aggregate_metrics: dict[str, float]
+    delta_summary_metrics: dict[str, float]
+    delta_aggregate_metrics: dict[str, float]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "baseline_checkpoint_path": self.baseline_checkpoint_path,
+            "baseline_artifact_mode": self.baseline_artifact_mode,
+            "baseline_summary_metrics": self.baseline_summary_metrics,
+            "baseline_aggregate_metrics": self.baseline_aggregate_metrics,
+            "delta_summary_metrics": self.delta_summary_metrics,
+            "delta_aggregate_metrics": self.delta_aggregate_metrics,
+        }
+
 
 @dataclass(frozen=True)
 class EvaluationResult:
@@ -65,14 +82,23 @@ class EvaluationResult:
     device: str
     image_size: int
     schema_version: str
+    id_to_label: dict[str, list[str]]
     supported_labels: dict[str, list[str]]
     train_label_counts: dict[str, dict[str, int]]
-    metrics: dict[str, float]
-    confusion_matrices: dict[str, np.ndarray]
+    summary_metrics: dict[str, float]
+    aggregate_metrics: dict[str, float]
+    per_head_metrics: dict[str, dict[str, float]]
+    per_class_metrics: list[dict[str, Any]]
+    confusion_matrices: dict[str, Any]
     visible_label_counts: dict[str, dict[str, int]]
     dataset_label_counts: dict[str, dict[str, int]]
     diagnostics: EvaluationDiagnostics
     prediction_frame: pd.DataFrame
+    comparison_to_baseline: EvaluationComparison | None = None
+
+    @property
+    def metrics(self) -> dict[str, float]:
+        return self.summary_metrics
 
 
 def sanitize_eval_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -94,45 +120,6 @@ def sanitize_eval_df(df: pd.DataFrame) -> pd.DataFrame:
         out["row_id"] = [f"row_{idx:06d}" for idx in range(len(out))]
     out["row_id"] = out["row_id"].astype(str)
     return out.reset_index(drop=True)
-
-
-def summarize_dataset_labels(frame: pd.DataFrame) -> dict[str, dict[str, int]]:
-    out: dict[str, dict[str, int]] = {}
-    for column in ["isbird", "readability", "specie", "behavior", "substrate", "stance"]:
-        counts = frame[column].fillna("<null>").value_counts().sort_index().to_dict()
-        out[column] = {str(key): int(value) for key, value in counts.items()}
-    return out
-
-
-def collect_visible_label_counts(frame: pd.DataFrame) -> dict[str, dict[str, int]]:
-    counts = {head: {label: 0 for label in ID_TO_LABELS[head]} for head in HEADS}
-    for _, row in frame.iterrows():
-        masks = compute_head_masks(
-            isbird=str(row["isbird"]),
-            readability=str(row["readability"]),
-            specie=str(row["specie"]),
-            behavior=str(row["behavior"]) if pd.notna(row["behavior"]) else None,
-            substrate=str(row["substrate"]) if pd.notna(row["substrate"]) else None,
-        )
-        normalized = {
-            "readability": normalize_choice(str(row["readability"])) if pd.notna(row["readability"]) else None,
-            "specie": normalize_choice(str(row["specie"])) if pd.notna(row["specie"]) else None,
-            "behavior": normalize_behavior(str(row["behavior"])) if pd.notna(row["behavior"]) else None,
-            "substrate": normalize_substrate(str(row["substrate"])) if pd.notna(row["substrate"]) else None,
-            "stance": normalize_stance(str(row["stance"])) if pd.notna(row["stance"]) else None,
-        }
-        mask_map = {
-            "readability": masks.readability,
-            "specie": masks.specie,
-            "behavior": masks.behavior,
-            "substrate": masks.substrate,
-            "stance": masks.stance,
-        }
-        for head in HEADS:
-            label = normalized[head]
-            if mask_map[head] and label in counts[head]:
-                counts[head][label] += 1
-    return counts
 
 
 class CropPathDataset(Dataset):
@@ -162,7 +149,7 @@ def _pick_device(requested: str) -> torch.device:
     return torch.device(req)
 
 
-def _member_transforms(artifact: LoadedModelBArtifact) -> dict[str, transforms.Compose]:
+def _member_transforms(artifact) -> dict[str, transforms.Compose]:
     return {
         member.name: transforms.Compose(
             [
@@ -183,7 +170,18 @@ def _load_batch_images(crop_paths: list[str]) -> list[Image.Image]:
     return images
 
 
-def evaluate_checkpoint_on_frame(
+def compare_evaluation_results(candidate: EvaluationResult, baseline: EvaluationResult) -> EvaluationComparison:
+    return EvaluationComparison(
+        baseline_checkpoint_path=baseline.checkpoint_path,
+        baseline_artifact_mode=baseline.artifact_mode,
+        baseline_summary_metrics=baseline.summary_metrics,
+        baseline_aggregate_metrics=baseline.aggregate_metrics,
+        delta_summary_metrics=build_metric_delta(candidate.summary_metrics, baseline.summary_metrics),
+        delta_aggregate_metrics=build_metric_delta(candidate.aggregate_metrics, baseline.aggregate_metrics),
+    )
+
+
+def _evaluate_checkpoint_on_frame(
     *,
     checkpoint_path: Path,
     frame: pd.DataFrame,
@@ -287,37 +285,38 @@ def evaluate_checkpoint_on_frame(
                 prediction_rows.append(
                     {
                         "row_id": row_id,
-                        "readability": predictions["readability"],
+                        "crop_path": str(row["crop_path"]),
+                        "image_id": str(row["image_id"]) if "image_id" in row and pd.notna(row["image_id"]) else None,
+                        "group_id": str(row["group_id"]) if "group_id" in row and pd.notna(row["group_id"]) else None,
+                        "readability_true": true_labels["readability"],
+                        "readability_pred": predictions["readability"],
                         "readability_conf": float(confidences["readability"]),
-                        "specie": predictions["specie"],
+                        "readability_visible": bool(mask_map["readability"]),
+                        "specie_true": true_labels["specie"],
+                        "specie_pred": predictions["specie"],
                         "specie_conf": float(confidences["specie"]),
-                        "behavior": predictions["behavior"],
+                        "specie_visible": bool(mask_map["specie"]),
+                        "behavior_true": true_labels["behavior"],
+                        "behavior_pred": predictions["behavior"],
                         "behavior_conf": float(confidences["behavior"]),
-                        "substrate": predictions["substrate"],
+                        "behavior_visible": bool(mask_map["behavior"]),
+                        "substrate_true": true_labels["substrate"],
+                        "substrate_pred": predictions["substrate"],
                         "substrate_conf": float(confidences["substrate"]),
-                        "stance": predictions["stance"],
+                        "substrate_visible": bool(mask_map["substrate"]),
+                        "stance_true": true_labels["stance"],
+                        "stance_pred": predictions["stance"],
                         "stance_conf": float(confidences["stance"]),
+                        "stance_visible": bool(mask_map["stance"]),
                     }
                 )
 
-    metrics: dict[str, float] = {}
-    confusion_matrices = {
-        head: np.zeros((HEAD_CLASS_COUNTS[head], HEAD_CLASS_COUNTS[head]), dtype=np.int64)
-        for head in CONFUSION_HEADS
-    }
-    visible_label_counts = collect_visible_label_counts(clean_frame)
-    for head, num_classes in HEAD_CLASS_COUNTS.items():
-        y_true = np.array(storage[head]["true"], dtype=np.int64)
-        y_pred = np.array(storage[head]["pred"], dtype=np.int64)
-        if len(y_true) == 0:
-            metrics[f"{head}_accuracy"] = 0.0
-            metrics[f"{head}_f1"] = 0.0
-            continue
-        metrics[f"{head}_accuracy"] = float((y_true == y_pred).mean())
-        metrics[f"{head}_f1"] = macro_f1(y_true, y_pred, num_classes, ignore_absent_classes=True)
-        if head in confusion_matrices:
-            confusion_matrices[head] = confusion_matrix(y_true, y_pred, num_classes)
-
+    metrics_result = compute_multihead_metrics(
+        storage=storage,
+        id_to_labels=artifact.id_to_label,
+        heads=HEADS,
+        confusion_heads=CONFUSION_HEADS,
+    )
     diagnostics = EvaluationDiagnostics(
         rows_scored=int(len(clean_frame)),
         unsupported_label_coercions=unsupported_label_coercions,
@@ -331,18 +330,53 @@ def evaluate_checkpoint_on_frame(
         device=str(eval_device),
         image_size=image_size,
         schema_version=str(artifact.schema_version),
+        id_to_label={
+            head: artifact.id_to_label[head][:]
+            for head in HEADS
+        },
         supported_labels={
             head: sorted(values, key=lambda label: LABEL_MAPS[head].get(label, 999))
             for head, values in artifact.supported_labels.items()
         },
         train_label_counts=artifact.train_label_counts,
-        metrics=metrics,
-        confusion_matrices=confusion_matrices,
-        visible_label_counts=visible_label_counts,
+        summary_metrics=metrics_result.summary_metrics,
+        aggregate_metrics=metrics_result.aggregate_metrics,
+        per_head_metrics=metrics_result.per_head_metrics,
+        per_class_metrics=metrics_result.per_class_metrics,
+        confusion_matrices=metrics_result.confusion_matrices,
+        visible_label_counts=collect_visible_label_counts(clean_frame),
         dataset_label_counts=summarize_dataset_labels(clean_frame),
         diagnostics=diagnostics,
         prediction_frame=pd.DataFrame(prediction_rows),
     )
+
+
+def evaluate_checkpoint_on_frame(
+    *,
+    checkpoint_path: Path,
+    frame: pd.DataFrame,
+    batch_size: int = 32,
+    num_workers: int = 0,
+    device: str = "auto",
+    baseline_checkpoint_path: Path | None = None,
+) -> EvaluationResult:
+    result = _evaluate_checkpoint_on_frame(
+        checkpoint_path=checkpoint_path,
+        frame=frame,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        device=device,
+    )
+    if baseline_checkpoint_path is None:
+        return result
+    baseline = _evaluate_checkpoint_on_frame(
+        checkpoint_path=baseline_checkpoint_path,
+        frame=frame,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        device=device,
+    )
+    return replace(result, comparison_to_baseline=compare_evaluation_results(result, baseline))
 
 
 def evaluate_checkpoint_on_dataset(
@@ -353,6 +387,7 @@ def evaluate_checkpoint_on_dataset(
     batch_size: int = 32,
     num_workers: int = 0,
     device: str = "auto",
+    baseline_checkpoint_path: Path | None = None,
 ) -> EvaluationResult:
     split_path = dataset_dir / f"{split}.parquet"
     frame = pd.read_parquet(split_path)
@@ -362,24 +397,33 @@ def evaluate_checkpoint_on_dataset(
         batch_size=batch_size,
         num_workers=num_workers,
         device=device,
+        baseline_checkpoint_path=baseline_checkpoint_path,
     )
 
 
 def evaluation_result_to_dict(result: EvaluationResult) -> dict[str, Any]:
-    return {
+    payload = {
         "checkpoint_path": result.checkpoint_path,
         "artifact_mode": result.artifact_mode,
         "device": result.device,
         "image_size": result.image_size,
         "schema_version": result.schema_version,
+        "id_to_label": result.id_to_label,
         "supported_labels": result.supported_labels,
         "train_label_counts": result.train_label_counts,
-        "metrics": result.metrics,
+        "summary_metrics": result.summary_metrics,
+        "aggregate_metrics": result.aggregate_metrics,
+        "per_head_metrics": result.per_head_metrics,
+        "per_class_metrics": result.per_class_metrics,
         "visible_label_counts": result.visible_label_counts,
         "dataset_label_counts": result.dataset_label_counts,
-        "diagnostics": asdict(result.diagnostics),
+        "diagnostics": result.diagnostics.to_dict(),
         "confusion_matrices": {
             head: result.confusion_matrices[head].tolist()
             for head in result.confusion_matrices
         },
+        "comparison_to_baseline": None,
     }
+    if result.comparison_to_baseline is not None:
+        payload["comparison_to_baseline"] = result.comparison_to_baseline.to_dict()
+    return payload

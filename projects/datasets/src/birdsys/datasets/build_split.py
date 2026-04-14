@@ -10,7 +10,7 @@ from collections import Counter
 from collections.abc import Sequence
 from typing import Any
 
-from birdsys.core import default_data_home, default_species_slug, diff_numeric_dict, ensure_layout, find_previous_version_dir, next_version_dir
+from birdsys.core import default_data_home, default_species_slug, diff_numeric_dict, ensure_layout, next_version_dir
 from birdsys.datasets.dataset_common import (
     LABEL_FIELDS,
     absent_class_warnings,
@@ -63,6 +63,42 @@ def load_frames(*, birds_path: pathlib.Path, images_path: pathlib.Path):
     birds_df["bird_id"] = birds_df["bird_id"].astype(str)
     images_df["image_id"] = images_df["image_id"].astype(str)
     return birds_df, images_df
+
+
+def version_index(name: str, prefix: str) -> int | None:
+    token = f"{prefix}_v"
+    if not name.startswith(token):
+        return None
+    suffix = name[len(token) :]
+    if not suffix.isdigit():
+        return None
+    return int(suffix)
+
+
+def list_previous_version_dirs(parent: pathlib.Path, *, prefix: str, current_name: str) -> list[pathlib.Path]:
+    current_idx = version_index(current_name, prefix)
+    if current_idx is None or not parent.exists():
+        return []
+
+    candidates: list[tuple[int, pathlib.Path]] = []
+    for path in parent.iterdir():
+        if not path.is_dir():
+            continue
+        idx = version_index(path.name, prefix)
+        if idx is None or idx >= current_idx:
+            continue
+        candidates.append((idx, path))
+    candidates.sort(key=lambda item: item[0])
+    return [path for _, path in candidates]
+
+
+def read_split_image_ids(path: pathlib.Path) -> set[str]:
+    if not path.exists():
+        return set()
+
+    import pandas as pd
+
+    return set(pd.read_parquet(path)["image_id"].astype(str).tolist())
 
 
 def build_group_table(*, birds_df, images_df, annotation_version: str):
@@ -128,12 +164,20 @@ def incremental_label_cost(
     return delta
 
 
-def select_test_groups(groups_df, *, previous_test_ids: set[str], target_rows: int):
+def select_test_groups(
+    groups_df,
+    *,
+    historical_test_ids: set[str],
+    historical_train_pool_ids: set[str],
+    target_rows: int,
+):
     records = groups_df.to_dict("records")
     by_image_id = {str(row["image_id"]): row for row in records}
     current_ids = set(by_image_id)
-    preserved = sorted(current_ids & set(previous_test_ids))
-    removed = sorted(set(previous_test_ids) - current_ids)
+    preserved = sorted(current_ids & set(historical_test_ids))
+    removed = sorted(set(historical_test_ids) - current_ids)
+    blocked_historical_train = current_ids & (set(historical_train_pool_ids) - set(historical_test_ids))
+    eligible_new_ids = current_ids - set(historical_test_ids) - set(historical_train_pool_ids)
 
     total_rows = int(groups_df["bird_rows"].sum())
     target_fraction = (float(target_rows) / float(total_rows)) if total_rows > 0 else 0.0
@@ -146,7 +190,7 @@ def select_test_groups(groups_df, *, previous_test_ids: set[str], target_rows: i
     for image_id in preserved:
         current_counts.update(by_image_id[image_id]["tokens"])
 
-    remaining = [row for row in records if str(row["image_id"]) not in test_ids]
+    remaining = [row for row in records if str(row["image_id"]) in eligible_new_ids]
     while current_rows < target_rows and remaining:
         best_row: dict[str, Any] | None = None
         best_score: tuple[float, float, float] | None = None
@@ -176,7 +220,13 @@ def select_test_groups(groups_df, *, previous_test_ids: set[str], target_rows: i
         image_id: ("preserved" if image_id in preserved else "added")
         for image_id in sorted(test_ids)
     }
-    return test_ids, membership, removed
+    return test_ids, membership, removed, {
+        "eligible_new_ids": sorted(eligible_new_ids),
+        "blocked_historical_train_ids": sorted(blocked_historical_train),
+        "target_rows": int(target_rows),
+        "actual_rows": int(current_rows),
+        "shortfall_rows": max(0, int(target_rows) - int(current_rows)),
+    }
 
 
 def assign_pool_folds(pool_df, *, folds: int):
@@ -520,9 +570,10 @@ def write_split_report_md(
         f"- Source annotation version: `{manifest['source_annotation_version']}`",
         f"- Grouping key: `{manifest['split_policy']['grouping_key']}`",
         f"- Test target percent: `{manifest['split_policy']['test_pct_target']:.3f}%`",
+        f"- Test growth policy: `{manifest['split_policy']['test_membership_policy']}`",
         f"- Rows: total `{counts['rows_total']}`, test `{counts['rows_test']}`, train_pool `{counts['rows_train_pool']}`",
         f"- Images: total `{counts['images_total']}`, test `{counts['images_test']}`, train_pool `{counts['images_train_pool']}`",
-        f"- Test membership: preserved `{membership['preserved']}`, added `{membership['added']}`, removed `{membership['removed']}`",
+        f"- Test membership: preserved `{membership['preserved']}`, added `{membership['added']}`, removed `{membership['removed']}`, shortfall rows `{membership['shortfall_rows']}`",
         "",
     ]
     if warnings:
@@ -565,26 +616,27 @@ def main(argv: Sequence[str] | None = None) -> int:
     birds_df, images_df = load_frames(birds_path=birds_path, images_path=images_path)
     groups_df = build_group_table(birds_df=birds_df, images_df=images_df, annotation_version=args.annotation_version)
 
-    previous_dir = find_previous_version_dir(layout.derived_splits, "split", out_dir.name)
-    previous_test_ids: set[str] = set()
+    previous_split_dirs = list_previous_version_dirs(layout.derived_splits, prefix="split", current_name=out_dir.name)
+    previous_dir = previous_split_dirs[-1] if previous_split_dirs else None
+    historical_test_ids: set[str] = set()
+    historical_train_pool_ids: set[str] = set()
     previous_counts: dict[str, int] | None = None
     previous_supports: dict[str, dict[str, dict[str, int]]] | None = None
+    for prior_dir in previous_split_dirs:
+        historical_test_ids.update(read_split_image_ids(prior_dir / "test_groups.parquet"))
+        historical_train_pool_ids.update(read_split_image_ids(prior_dir / "train_pool_groups.parquet"))
     if previous_dir is not None:
-        prev_test_path = previous_dir / "test_groups.parquet"
         prev_manifest_path = previous_dir / "split_manifest.json"
-        if prev_test_path.exists():
-            import pandas as pd
-
-            previous_test_ids = set(pd.read_parquet(prev_test_path)["image_id"].astype(str).tolist())
         if prev_manifest_path.exists():
             previous_manifest = json.loads(prev_manifest_path.read_text(encoding="utf-8"))
             previous_counts = previous_manifest.get("counts")
             previous_supports = previous_manifest.get("split_supports")
 
     target_rows = int(round((float(args.test_pct) / 100.0) * float(len(birds_df))))
-    test_ids, membership_status, removed_previous = select_test_groups(
+    test_ids, membership_status, removed_previous, selection_stats = select_test_groups(
         groups_df,
-        previous_test_ids=previous_test_ids,
+        historical_test_ids=historical_test_ids,
+        historical_train_pool_ids=historical_train_pool_ids,
         target_rows=target_rows,
     )
     pool_ids = set(groups_df["image_id"].astype(str).tolist()) - set(test_ids)
@@ -619,6 +671,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         test_counts=split_supports["test"],
         fold_counts=fold_supports,
     )
+    if int(selection_stats["shortfall_rows"]) > 0:
+        warnings.append(
+            "Test split is below target rows because only never-before-seen images are eligible for new test admissions."
+        )
     counts = split_counts(birds_df=birds_df, test_ids=set(test_ids), pool_ids=set(pool_ids))
 
     membership_summary = {
@@ -639,7 +695,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "grouping_key": "image_id",
             "test_pct_target": float(args.test_pct),
             "folds": int(args.folds),
-            "test_membership_policy": "preserve_and_top_up",
+            "test_membership_policy": "preserve_historical_test_and_top_up_from_new_images_only",
+            "historical_membership_policy": "historical_train_pool_images_cannot_move_into_test",
             "stratification": "grouped_multilabel_visible_class_presence",
             "rare_class_policy": "best_effort_report_only",
         },
@@ -655,6 +712,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             "added": membership_summary["added"],
             "removed": membership_summary["removed"],
             "removed_image_ids": removed_previous,
+            "eligible_new_image_ids": selection_stats["eligible_new_ids"],
+            "blocked_historical_train_image_ids": selection_stats["blocked_historical_train_ids"],
+            "target_rows": selection_stats["target_rows"],
+            "actual_rows": selection_stats["actual_rows"],
+            "shortfall_rows": selection_stats["shortfall_rows"],
         },
         "warnings": warnings,
         "previous_split_version": None if previous_dir is None else previous_dir.name,

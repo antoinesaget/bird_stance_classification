@@ -56,5 +56,6 @@ README.md
 - `birdsys.core` now exposes the minimal shared surface needed by extraction and dataset creation.
 - The canonical annotation extraction command is `birdsys.labelstudio.extract_annotations`.
 - The strict current-schema extraction path has been verified against live project `7` into a temporary data root.
+- Split artifacts are leakage-safe across versions: once an `image_id` enters `train_pool` it cannot later move into `test`, and test growth only admits never-before-seen images.
 
 This README is meant to describe the repo exactly as it exists now, not the fully repaired state we still need to rebuild.

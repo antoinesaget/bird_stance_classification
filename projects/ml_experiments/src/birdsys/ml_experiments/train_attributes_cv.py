@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Purpose: Run grouped cross-validation for Model B and compare against the served artifact"""
+"""Purpose: Run grouped cross-validation for Model B and compare against the served artifact."""
 from __future__ import annotations
 
 import argparse
@@ -8,7 +8,6 @@ import json
 import os
 import pathlib
 from collections.abc import Sequence
-from statistics import mean, pstdev
 from tempfile import TemporaryDirectory
 from typing import Any
 
@@ -16,16 +15,16 @@ import numpy as np
 import pandas as pd
 
 from birdsys.core import ensure_layout, next_version_dir
-from birdsys.ml_experiments.model_b_evaluation import (
-    CONFUSION_HEADS,
-    evaluation_result_to_dict,
+
+from .common import CONFUSION_HEADS, HEADS, ID_TO_LABELS, collect_visible_label_counts
+from .model_b_evaluation import (
+    compare_evaluation_results,
     evaluate_checkpoint_on_frame,
+    evaluation_result_to_dict,
 )
-from birdsys.ml_experiments.train_attributes import (
-    HEADS,
-    ID_TO_LABELS,
+from .reports import summarize_metric_distribution, write_cv_report_artifacts, write_evaluation_report
+from .train_attributes import (
     TrainCfg,
-    collect_visible_label_counts,
     dataframe_from_split,
     load_cfg,
     pick_device,
@@ -52,7 +51,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--progress-every-batches", type=int, default=20)
     parser.add_argument(
         "--old-model-checkpoint",
-        help="Path to the old-model checkpoint file or served artifact directory",
+        help="Path to the baseline checkpoint file or served artifact directory",
         default=os.getenv(
             "MODEL_B_CHECKPOINT",
             "/data/birds/black_winged_stilt/models/attributes/served/model_b/current",
@@ -80,6 +79,47 @@ def load_train_pool_with_folds(*, dataset_dir: pathlib.Path, smoke: bool) -> pd.
     if pool_df["fold_id"].isna().any():
         raise RuntimeError("train_pool rows missing fold_id from fold_assignments.parquet")
     return pool_df.reset_index(drop=True)
+
+
+def _fold_row(
+    *,
+    fold_number: int,
+    fold_train: pd.DataFrame,
+    fold_eval: pd.DataFrame,
+    candidate_result,
+    baseline_result,
+) -> dict[str, Any]:
+    comparison = compare_evaluation_results(candidate_result, baseline_result)
+    row: dict[str, Any] = {
+        "fold": int(fold_number),
+        "train_rows": int(len(fold_train)),
+        "eval_rows": int(len(fold_eval)),
+        "candidate_primary_score": float(candidate_result.aggregate_metrics["primary_score"]),
+        "baseline_primary_score": float(baseline_result.aggregate_metrics["primary_score"]),
+        "delta_primary_score": float(comparison.delta_aggregate_metrics.get("primary_score", 0.0)),
+        "candidate_mean_balanced_accuracy": float(candidate_result.aggregate_metrics["mean_balanced_accuracy"]),
+        "baseline_mean_balanced_accuracy": float(baseline_result.aggregate_metrics["mean_balanced_accuracy"]),
+        "delta_mean_balanced_accuracy": float(comparison.delta_aggregate_metrics.get("mean_balanced_accuracy", 0.0)),
+        "candidate_visible_support_total": float(candidate_result.aggregate_metrics["total_visible_support"]),
+        "baseline_visible_support_total": float(baseline_result.aggregate_metrics["total_visible_support"]),
+    }
+    row.update({f"candidate_{key}": float(value) for key, value in candidate_result.summary_metrics.items()})
+    row.update({f"baseline_{key}": float(value) for key, value in baseline_result.summary_metrics.items()})
+    row.update({f"delta_{key}": float(value) for key, value in comparison.delta_summary_metrics.items()})
+    row["candidate_report_summary"] = f"fold_{fold_number:02d}/candidate_eval/summary.json"
+    row["baseline_report_summary"] = f"fold_{fold_number:02d}/baseline_eval/summary.json"
+    return row
+
+
+def _numeric_metric_keys(rows: list[dict[str, Any]], prefix: str) -> list[str]:
+    keys: set[str] = set()
+    for row in rows:
+        for key, value in row.items():
+            if not key.startswith(prefix):
+                continue
+            if isinstance(value, (int, float, np.integer, np.floating)):
+                keys.add(key.removeprefix(prefix))
+    return sorted(keys)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -112,25 +152,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         out_dir = next_version_dir(layout.models_attributes / "cv_reports", "attributes_cv")
 
     device = pick_device(effective.device)
-    pool_df = pool_df.copy()
     fold_ids = sorted(pool_df["fold_id"].dropna().astype(int).unique().tolist())
     if not fold_ids:
         raise RuntimeError("No fold assignments found in train_pool.parquet")
 
+    baseline_checkpoint = pathlib.Path(args.old_model_checkpoint).expanduser().resolve()
+    if not baseline_checkpoint.exists():
+        raise FileNotFoundError(baseline_checkpoint)
+
     fold_rows: list[dict[str, Any]] = []
-    aggregate_confusions = {
+    aggregate_candidate_confusions = {
         head: np.zeros((len(ID_TO_LABELS[head]), len(ID_TO_LABELS[head])), dtype=np.int64)
         for head in CONFUSION_HEADS
     }
-    old_aggregate_confusions = {
+    aggregate_baseline_confusions = {
         head: np.zeros((len(ID_TO_LABELS[head]), len(ID_TO_LABELS[head])), dtype=np.int64)
         for head in CONFUSION_HEADS
     }
-    old_model_checkpoint = pathlib.Path(args.old_model_checkpoint).expanduser().resolve()
-    if not old_model_checkpoint.exists():
-        raise FileNotFoundError(old_model_checkpoint)
 
     for fold_idx in fold_ids:
+        fold_number = int(fold_idx) + 1
         fold_train = pool_df[pool_df["fold_id"] != fold_idx].drop(columns=["fold_id"]).reset_index(drop=True)
         fold_eval = pool_df[pool_df["fold_id"] == fold_idx].drop(columns=["fold_id"]).reset_index(drop=True)
         if fold_train.empty or fold_eval.empty:
@@ -138,7 +179,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         print(
             "cv_fold_start "
-            f"fold={fold_idx + 1}/{len(fold_ids)} "
+            f"fold={fold_number}/{len(fold_ids)} "
             f"train_rows={len(fold_train)} "
             f"eval_rows={len(fold_eval)}",
             flush=True,
@@ -154,7 +195,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             progress_every_batches=args.progress_every_batches,
             weighted_sampling=not args.no_weighted_sampling,
         )
-        with TemporaryDirectory(prefix=f"model_b_cv_fold_{fold_idx + 1}_") as tmp_dir_name:
+
+        fold_dir = out_dir / f"fold_{fold_number:02d}"
+        fold_dir.mkdir(parents=True, exist_ok=False)
+        with TemporaryDirectory(prefix=f"model_b_cv_fold_{fold_number}_") as tmp_dir_name:
             tmp_dir = pathlib.Path(tmp_dir_name)
             temp_checkpoint = save_checkpoint(
                 out_dir=tmp_dir,
@@ -165,63 +209,40 @@ def main(argv: Sequence[str] | None = None) -> int:
                 supported_labels=result.supported_labels,
                 train_visible_label_counts=result.train_visible_label_counts,
             )
-            new_eval = evaluate_checkpoint_on_frame(
+            candidate_result = evaluate_checkpoint_on_frame(
                 checkpoint_path=temp_checkpoint,
                 frame=fold_eval,
                 device=str(device),
+                baseline_checkpoint_path=baseline_checkpoint,
             )
-        old_eval = evaluate_checkpoint_on_frame(
-            checkpoint_path=old_model_checkpoint,
+        baseline_result = evaluate_checkpoint_on_frame(
+            checkpoint_path=baseline_checkpoint,
             frame=fold_eval,
             device=str(device),
         )
-        delta_metrics = {
-            key: float(new_eval.metrics.get(key, 0.0)) - float(old_eval.metrics.get(key, 0.0))
-            for key in sorted(set(new_eval.metrics) | set(old_eval.metrics))
-        }
 
-        row: dict[str, Any] = {
-            "fold": fold_idx + 1,
-            "train_rows": len(fold_train),
-            "eval_rows": len(fold_eval),
-            "supported_labels": result.supported_labels,
-            "eval_visible_label_counts": result.eval_visible_label_counts,
-            "fold_eval_label_counts": summarize_labels(fold_eval),
-            "new_model_fold_metrics": new_eval.metrics,
-            "old_model_fold_metrics": old_eval.metrics,
-            "delta_metrics": delta_metrics,
-            "new_model_diagnostics": evaluation_result_to_dict(new_eval)["diagnostics"],
-            "old_model_diagnostics": evaluation_result_to_dict(old_eval)["diagnostics"],
-        }
-        fold_rows.append(row)
-        for head, matrix in new_eval.confusion_matrices.items():
-            aggregate_confusions[head] += matrix
-        for head, matrix in old_eval.confusion_matrices.items():
-            old_aggregate_confusions[head] += matrix
+        write_evaluation_report(fold_dir / "candidate_eval", candidate_result)
+        write_evaluation_report(fold_dir / "baseline_eval", baseline_result)
 
-    metrics_summary: dict[str, dict[str, dict[str, float]]] = {"new_model": {}, "old_model": {}, "delta": {}}
-    for scope, key_name in (
-        ("new_model", "new_model_fold_metrics"),
-        ("old_model", "old_model_fold_metrics"),
-        ("delta", "delta_metrics"),
-    ):
-        for head in HEADS:
-            for suffix in ("accuracy", "f1"):
-                metric_key = f"{head}_{suffix}"
-                values = [float((row.get(key_name) or {}).get(metric_key, 0.0)) for row in fold_rows]
-                metrics_summary[scope][metric_key] = {
-                    "mean": float(mean(values)) if values else 0.0,
-                    "std": float(pstdev(values)) if len(values) > 1 else 0.0,
-                    "min": float(min(values)) if values else 0.0,
-                    "max": float(max(values)) if values else 0.0,
-                }
+        fold_rows.append(
+            _fold_row(
+                fold_number=fold_number,
+                fold_train=fold_train,
+                fold_eval=fold_eval,
+                candidate_result=candidate_result,
+                baseline_result=baseline_result,
+            )
+        )
+        for head, matrix in candidate_result.confusion_matrices.items():
+            aggregate_candidate_confusions[head] += matrix
+        for head, matrix in baseline_result.confusion_matrices.items():
+            aggregate_baseline_confusions[head] += matrix
 
-    full_visible_counts = collect_visible_label_counts(pool_df.drop(columns=["fold_id"]))
-    unsupported_labels = {
-        head: [label for label, count in counts.items() if int(count) <= 0]
-        for head, counts in full_visible_counts.items()
-    }
-    report = {
+    candidate_metric_keys = _numeric_metric_keys(fold_rows, "candidate_")
+    baseline_metric_keys = _numeric_metric_keys(fold_rows, "baseline_")
+    delta_metric_keys = _numeric_metric_keys(fold_rows, "delta_")
+
+    summary_payload = {
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "dataset_version": dataset_dir.name,
         "schema_version": args.schema_version,
@@ -229,31 +250,48 @@ def main(argv: Sequence[str] | None = None) -> int:
         "device": str(device),
         "pretrained": not args.no_pretrained,
         "weighted_sampling": not args.no_weighted_sampling,
-        "old_model_checkpoint": str(old_model_checkpoint),
+        "baseline_checkpoint": str(baseline_checkpoint),
         "pool_rows": int(len(pool_df)),
         "pool_label_counts": summarize_labels(pool_df.drop(columns=["fold_id"])),
-        "pool_visible_label_counts": full_visible_counts,
-        "unsupported_labels": unsupported_labels,
+        "pool_visible_label_counts": collect_visible_label_counts(pool_df.drop(columns=["fold_id"])),
+        "candidate_metrics_summary": {
+            key: summarize_metric_distribution(fold_rows, f"candidate_{key}")
+            for key in candidate_metric_keys
+        },
+        "baseline_metrics_summary": {
+            key: summarize_metric_distribution(fold_rows, f"baseline_{key}")
+            for key in baseline_metric_keys
+        },
+        "delta_metrics_summary": {
+            key: summarize_metric_distribution(fold_rows, f"delta_{key}")
+            for key in delta_metric_keys
+        },
         "folds_report": fold_rows,
-        "metrics_summary": metrics_summary,
     }
 
-    report_json = out_dir / "cv_report.json"
-    report_json.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    fold_metrics_csv = out_dir / "cv_fold_metrics.csv"
-    pd.DataFrame(fold_rows).to_csv(fold_metrics_csv, index=False)
-    for head, matrix in aggregate_confusions.items():
+    outputs = write_cv_report_artifacts(
+        out_dir,
+        summary_payload=summary_payload,
+        fold_rows=fold_rows,
+    )
+
+    cv_report_json = out_dir / "cv_report.json"
+    cv_report_json.write_text(json.dumps(summary_payload, indent=2) + "\n", encoding="utf-8")
+
+    for head, matrix in aggregate_candidate_confusions.items():
         pd.DataFrame(matrix, index=ID_TO_LABELS[head], columns=ID_TO_LABELS[head]).to_csv(
-            out_dir / f"cv_new_model_{head}_confusion_matrix.csv"
+            out_dir / f"candidate_{head}_confusion_matrix.csv"
         )
-    for head, matrix in old_aggregate_confusions.items():
+    for head, matrix in aggregate_baseline_confusions.items():
         pd.DataFrame(matrix, index=ID_TO_LABELS[head], columns=ID_TO_LABELS[head]).to_csv(
-            out_dir / f"cv_old_model_{head}_confusion_matrix.csv"
+            out_dir / f"baseline_{head}_confusion_matrix.csv"
         )
 
     print(f"output_dir={out_dir}")
-    print(f"report_json={report_json}")
-    print(f"fold_metrics_csv={fold_metrics_csv}")
+    print(f"summary_json={outputs['summary_json']}")
+    print(f"summary_csv={outputs['summary_csv']}")
+    print(f"fold_metrics_csv={outputs['fold_metrics_csv']}")
+    print(f"cv_report_json={cv_report_json}")
     return 0
 
 

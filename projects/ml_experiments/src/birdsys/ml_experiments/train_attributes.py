@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Purpose: Train a final Model B artifact on a chosen dataset split"""
+"""Purpose: Train a final Model B artifact on a chosen dataset split."""
 from __future__ import annotations
 
 import argparse
@@ -24,11 +24,6 @@ from torchvision import transforms
 
 from birdsys.core import diff_numeric_dict, ensure_layout, find_previous_version_dir, next_version_dir
 from birdsys.core.attributes import (
-    BEHAVIOR_TO_ID,
-    READABILITY_TO_ID,
-    SPECIE_TO_ID,
-    STANCE_TO_ID,
-    SUBSTRATE_TO_ID,
     compute_head_masks,
     encode_labels,
     normalize_behavior,
@@ -37,24 +32,21 @@ from birdsys.core.attributes import (
     normalize_substrate,
 )
 from birdsys.core.models import MultiHeadAttributeModel
-from birdsys.ml_experiments.metrics import class_supports, confusion_matrix, macro_f1
+
+from .common import (
+    CONFUSION_HEADS,
+    HEADS,
+    ID_TO_LABELS,
+    LABEL_MAPS,
+    collect_visible_label_counts,
+    summarize_dataset_labels,
+)
+from .metrics import MultiHeadMetrics, compute_multihead_metrics
+from .model_b_evaluation import evaluate_checkpoint_on_frame, evaluation_result_to_dict
+from .reports import write_evaluation_report, write_training_debug_artifacts
 
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[3]
-HEADS = ["readability", "specie", "behavior", "substrate", "stance"]
-CONFUSION_HEADS = ["behavior", "substrate", "stance"]
-LABEL_MAPS = {
-    "readability": READABILITY_TO_ID,
-    "specie": SPECIE_TO_ID,
-    "behavior": BEHAVIOR_TO_ID,
-    "substrate": SUBSTRATE_TO_ID,
-    "stance": STANCE_TO_ID,
-}
-ID_TO_LABELS = {
-    head: [label for label, _ in sorted(mapping.items(), key=lambda item: item[1])]
-    for head, mapping in LABEL_MAPS.items()
-}
-HEAD_CLASS_COUNTS = {head: len(labels) for head, labels in ID_TO_LABELS.items()}
 
 
 @dataclass(frozen=True)
@@ -72,11 +64,19 @@ class TrainCfg:
 
 
 @dataclass(frozen=True)
+class LoaderEvaluation:
+    loss: float
+    head_losses: dict[str, float]
+    metrics: MultiHeadMetrics
+
+
+@dataclass(frozen=True)
 class TrainResult:
     model: MultiHeadAttributeModel
-    history: list[dict[str, float]]
-    final_metrics: dict[str, float]
-    confusion_matrices: dict[str, np.ndarray]
+    epoch_history: list[dict[str, Any]]
+    batch_history: list[dict[str, Any]]
+    final_train_evaluation: LoaderEvaluation
+    final_eval_evaluation: LoaderEvaluation
     train_visible_label_counts: dict[str, dict[str, int]]
     eval_visible_label_counts: dict[str, dict[str, int]]
     supported_labels: dict[str, list[str]]
@@ -217,42 +217,7 @@ def dataframe_from_split(path: pathlib.Path, smoke: bool) -> pd.DataFrame:
 
 
 def summarize_labels(frame: pd.DataFrame) -> dict[str, dict[str, int]]:
-    out: dict[str, dict[str, int]] = {}
-    for column in ["isbird", "readability", "specie", "behavior", "substrate", "stance"]:
-        vc = frame[column].fillna("<null>").value_counts().sort_index().to_dict()
-        out[column] = {str(k): int(v) for k, v in vc.items()}
-    return out
-
-
-def collect_visible_label_counts(frame: pd.DataFrame) -> dict[str, dict[str, int]]:
-    counts = {head: {label: 0 for label in ID_TO_LABELS[head]} for head in HEADS}
-    for _, row in frame.iterrows():
-        masks = compute_head_masks(
-            isbird=str(row["isbird"]),
-            readability=str(row["readability"]),
-            specie=str(row["specie"]),
-            behavior=str(row["behavior"]) if pd.notna(row["behavior"]) else None,
-            substrate=str(row["substrate"]) if pd.notna(row["substrate"]) else None,
-        )
-        normalized = {
-            "readability": normalize_choice(str(row["readability"])) if pd.notna(row["readability"]) else None,
-            "specie": normalize_choice(str(row["specie"])) if pd.notna(row["specie"]) else None,
-            "behavior": normalize_behavior(str(row["behavior"])) if pd.notna(row["behavior"]) else None,
-            "substrate": normalize_substrate(str(row["substrate"])) if pd.notna(row["substrate"]) else None,
-            "stance": normalize_stance(str(row["stance"])) if pd.notna(row["stance"]) else None,
-        }
-        mask_map = {
-            "readability": masks.readability,
-            "specie": masks.specie,
-            "behavior": masks.behavior,
-            "substrate": masks.substrate,
-            "stance": masks.stance,
-        }
-        for head in HEADS:
-            label = normalized[head]
-            if mask_map[head] and label in counts[head]:
-                counts[head][label] += 1
-    return counts
+    return summarize_dataset_labels(frame)
 
 
 def supported_labels_from_counts(counts: dict[str, dict[str, int]]) -> dict[str, list[str]]:
@@ -305,13 +270,14 @@ def compute_sampling_weights(frame: pd.DataFrame) -> tuple[np.ndarray, dict[str,
     return weights, counts
 
 
-def make_train_loader(
+def make_loader(
     dataset: BirdAttributeDataset,
     *,
     batch_size: int,
     num_workers: int,
     pin_memory: bool,
     weights: np.ndarray | None,
+    shuffle: bool,
 ) -> DataLoader:
     if weights is not None:
         sampler = WeightedRandomSampler(
@@ -330,99 +296,69 @@ def make_train_loader(
     return DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=True,
+        shuffle=shuffle,
         num_workers=num_workers,
         pin_memory=pin_memory,
     )
 
 
-def compute_masked_loss(
+def compute_head_losses(
     logits: dict[str, torch.Tensor],
     batch: dict[str, torch.Tensor],
     criterion: nn.Module,
-) -> torch.Tensor:
-    total = torch.tensor(0.0, device=next(iter(logits.values())).device)
+) -> dict[str, torch.Tensor]:
+    losses: dict[str, torch.Tensor] = {}
     for head in HEADS:
         labels = batch[f"{head}_label"]
         mask = batch[f"{head}_mask"].bool()
         if mask.any():
-            total = total + criterion(logits[head][mask], labels[mask])
-    return total
+            losses[head] = criterion(logits[head][mask], labels[mask])
+        else:
+            losses[head] = torch.tensor(0.0, device=next(iter(logits.values())).device)
+    return losses
 
 
-def run_epoch(
+def _to_float_loss_dict(losses: dict[str, torch.Tensor]) -> dict[str, float]:
+    return {head: float(value.detach().cpu()) for head, value in losses.items()}
+
+
+def _parameter_grad_norm(parameters) -> float:
+    total = 0.0
+    for parameter in parameters:
+        if parameter.grad is None:
+            continue
+        grad = parameter.grad.detach()
+        total += float(torch.sum(grad * grad).item())
+    return float(math.sqrt(total)) if total > 0 else 0.0
+
+
+def evaluate_model(
     *,
     model: MultiHeadAttributeModel,
     loader: DataLoader,
     device: torch.device,
-    optimizer: torch.optim.Optimizer | None,
-    phase_name: str,
-    epoch_idx: int,
-    total_epochs: int,
-    progress_every_batches: int,
-) -> float:
+) -> LoaderEvaluation:
     criterion = nn.CrossEntropyLoss()
-    total_loss = 0.0
-    steps = 0
-
-    train_mode = optimizer is not None
-    model.train(train_mode)
-    epoch_started = time.monotonic()
-    total_batches = max(1, len(loader))
-
-    for batch_idx, batch in enumerate(loader, start=1):
-        x = batch["image"].to(device)
-        tensor_batch = {
-            key: value.to(device) if isinstance(value, torch.Tensor) else value
-            for key, value in batch.items()
-        }
-        logits = model(x)
-        loss = compute_masked_loss(logits, tensor_batch, criterion)
-
-        if train_mode:
-            optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            optimizer.step()
-
-        total_loss += float(loss.detach().cpu())
-        steps += 1
-
-        should_log = (
-            progress_every_batches > 0
-            and (batch_idx % progress_every_batches == 0 or batch_idx == total_batches)
-        )
-        if should_log:
-            elapsed = max(1e-6, time.monotonic() - epoch_started)
-            avg_loss = total_loss / max(steps, 1)
-            batches_per_s = batch_idx / elapsed
-            eta_s = (total_batches - batch_idx) / batches_per_s if batches_per_s > 0 else 0.0
-            print(
-                "train_progress "
-                f"phase={phase_name} "
-                f"epoch={epoch_idx}/{total_epochs} "
-                f"batch={batch_idx}/{total_batches} "
-                f"avg_loss={avg_loss:.5f} "
-                f"batches_per_s={batches_per_s:.2f} "
-                f"eta_s={eta_s:.1f}",
-                flush=True,
-            )
-
-    return total_loss / max(steps, 1)
-
-
-def evaluate(
-    *,
-    model: MultiHeadAttributeModel,
-    loader: DataLoader,
-    device: torch.device,
-) -> tuple[dict[str, float], dict[str, np.ndarray], dict[str, dict[str, int]]]:
     model.eval()
+    total_loss = 0.0
+    total_head_losses = {head: 0.0 for head in HEADS}
+    steps = 0
     storage: dict[str, dict[str, list[int]]] = {head: {"true": [], "pred": []} for head in HEADS}
 
     with torch.no_grad():
         for batch in loader:
             x = batch["image"].to(device)
+            tensor_batch = {
+                key: value.to(device) if isinstance(value, torch.Tensor) else value
+                for key, value in batch.items()
+            }
             logits = model(x)
+            head_losses = compute_head_losses(logits, tensor_batch, criterion)
+            loss = sum(head_losses.values(), torch.tensor(0.0, device=device))
+            total_loss += float(loss.detach().cpu())
+            for head, value in _to_float_loss_dict(head_losses).items():
+                total_head_losses[head] += value
+            steps += 1
 
             for head in storage:
                 labels = batch[f"{head}_label"].cpu().numpy()
@@ -431,30 +367,121 @@ def evaluate(
                 storage[head]["true"].extend(labels[mask].tolist())
                 storage[head]["pred"].extend(preds[mask].tolist())
 
-    metrics: dict[str, float] = {}
-    confusion_matrices = {head: np.zeros((HEAD_CLASS_COUNTS[head], HEAD_CLASS_COUNTS[head]), dtype=np.int64) for head in CONFUSION_HEADS}
-    support_counts: dict[str, dict[str, int]] = {}
-    for head, num_classes in HEAD_CLASS_COUNTS.items():
-        y_true = np.array(storage[head]["true"], dtype=np.int64)
-        y_pred = np.array(storage[head]["pred"], dtype=np.int64)
-        if len(y_true) == 0:
-            metrics[f"{head}_accuracy"] = 0.0
-            metrics[f"{head}_f1"] = 0.0
-            support_counts[head] = {label: 0 for label in ID_TO_LABELS[head]}
-            continue
+    metrics = compute_multihead_metrics(
+        storage=storage,
+        id_to_labels=ID_TO_LABELS,
+        heads=HEADS,
+        confusion_heads=CONFUSION_HEADS,
+    )
+    average_head_losses = {
+        head: (float(total_head_losses[head]) / max(steps, 1))
+        for head in HEADS
+    }
+    return LoaderEvaluation(
+        loss=float(total_loss / max(steps, 1)),
+        head_losses=average_head_losses,
+        metrics=metrics,
+    )
 
-        acc = float((y_true == y_pred).mean())
-        f1 = macro_f1(y_true, y_pred, num_classes, ignore_absent_classes=True)
-        metrics[f"{head}_accuracy"] = acc
-        metrics[f"{head}_f1"] = f1
-        support_counts[head] = {
-            label: int(count)
-            for label, count in zip(ID_TO_LABELS[head], class_supports(y_true, num_classes).tolist())
+
+def run_training_epoch(
+    *,
+    model: MultiHeadAttributeModel,
+    loader: DataLoader,
+    device: torch.device,
+    optimizer: torch.optim.Optimizer,
+    phase_name: str,
+    phase_epoch: int,
+    total_phase_epochs: int,
+    epoch_index: int,
+    progress_every_batches: int,
+    global_step_start: int,
+) -> tuple[float, dict[str, float], list[dict[str, Any]], int]:
+    criterion = nn.CrossEntropyLoss()
+    total_loss = 0.0
+    total_head_losses = {head: 0.0 for head in HEADS}
+    batch_logs: list[dict[str, Any]] = []
+    model.train(True)
+    epoch_started = time.monotonic()
+    total_batches = max(1, len(loader))
+
+    global_step = int(global_step_start)
+    for batch_idx, batch in enumerate(loader, start=1):
+        global_step += 1
+        x = batch["image"].to(device)
+        tensor_batch = {
+            key: value.to(device) if isinstance(value, torch.Tensor) else value
+            for key, value in batch.items()
         }
-        if head in confusion_matrices:
-            confusion_matrices[head] = confusion_matrix(y_true, y_pred, num_classes)
+        logits = model(x)
+        head_losses = compute_head_losses(logits, tensor_batch, criterion)
+        loss = sum(head_losses.values(), torch.tensor(0.0, device=device))
 
-    return metrics, confusion_matrices, support_counts
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        global_grad_norm = _parameter_grad_norm(model.parameters())
+        backbone_grad_norm = _parameter_grad_norm(model.backbone.parameters())
+        head_grad_norms = {
+            head: _parameter_grad_norm(getattr(model, head).parameters())
+            for head in model.heads
+        }
+        optimizer.step()
+
+        total_loss += float(loss.detach().cpu())
+        float_head_losses = _to_float_loss_dict(head_losses)
+        for head, value in float_head_losses.items():
+            total_head_losses[head] += value
+
+        elapsed = max(1e-6, time.monotonic() - epoch_started)
+        batches_per_s = batch_idx / elapsed
+        eta_s = (total_batches - batch_idx) / batches_per_s if batches_per_s > 0 else 0.0
+        learning_rate = float(optimizer.param_groups[0]["lr"])
+        log_row: dict[str, Any] = {
+            "phase": phase_name,
+            "phase_epoch": int(phase_epoch),
+            "total_phase_epochs": int(total_phase_epochs),
+            "epoch_index": int(epoch_index),
+            "global_step": int(global_step),
+            "batch": int(batch_idx),
+            "total_batches": int(total_batches),
+            "total_loss": float(loss.detach().cpu()),
+            "learning_rate": learning_rate,
+            "batches_per_s": float(batches_per_s),
+            "eta_s": float(eta_s),
+            "global_grad_norm": float(global_grad_norm),
+            "backbone_grad_norm": float(backbone_grad_norm),
+        }
+        for head in HEADS:
+            log_row[f"{head}_loss"] = float(float_head_losses.get(head, 0.0))
+            log_row[f"{head}_grad_norm"] = float(head_grad_norms.get(head, 0.0))
+        batch_logs.append(log_row)
+
+        should_log = (
+            progress_every_batches > 0
+            and (batch_idx % progress_every_batches == 0 or batch_idx == total_batches)
+        )
+        if should_log:
+            avg_loss = total_loss / max(batch_idx, 1)
+            print(
+                "train_progress "
+                f"phase={phase_name} "
+                f"epoch={phase_epoch}/{total_phase_epochs} "
+                f"epoch_index={epoch_index} "
+                f"batch={batch_idx}/{total_batches} "
+                f"avg_loss={avg_loss:.5f} "
+                f"lr={learning_rate:.6g} "
+                f"global_grad_norm={global_grad_norm:.5f} "
+                f"backbone_grad_norm={backbone_grad_norm:.5f} "
+                f"batches_per_s={batches_per_s:.2f} "
+                f"eta_s={eta_s:.1f}",
+                flush=True,
+            )
+
+    average_head_losses = {
+        head: float(total_head_losses[head]) / max(total_batches, 1)
+        for head in HEADS
+    }
+    return float(total_loss / max(total_batches, 1)), average_head_losses, batch_logs, global_step
 
 
 def train_model(
@@ -475,21 +502,31 @@ def train_model(
     train_visible_label_counts = collect_visible_label_counts(train_df)
     if weighted_sampling:
         weights, train_visible_label_counts = compute_sampling_weights(train_df)
-
     eval_visible_label_counts = collect_visible_label_counts(eval_df)
-    train_loader = make_train_loader(
+
+    train_loader = make_loader(
         train_ds,
         batch_size=cfg.batch_size,
         num_workers=cfg.num_workers,
         pin_memory=(device.type != "cpu"),
         weights=weights,
+        shuffle=weights is None,
     )
-    eval_loader = DataLoader(
-        eval_ds,
+    train_eval_loader = make_loader(
+        train_ds,
         batch_size=cfg.batch_size,
-        shuffle=False,
         num_workers=cfg.num_workers,
         pin_memory=(device.type != "cpu"),
+        weights=None,
+        shuffle=False,
+    )
+    eval_loader = make_loader(
+        eval_ds,
+        batch_size=cfg.batch_size,
+        num_workers=cfg.num_workers,
+        pin_memory=(device.type != "cpu"),
+        weights=None,
+        shuffle=False,
     )
 
     model = MultiHeadAttributeModel(
@@ -497,173 +534,95 @@ def train_model(
         pretrained=pretrained,
     ).to(device)
 
-    history: list[dict[str, float]] = []
+    epoch_history: list[dict[str, Any]] = []
+    batch_history: list[dict[str, Any]] = []
+    global_step = 0
+    epoch_index = 0
 
+    phase_specs: list[tuple[str, int, torch.optim.Optimizer, bool]] = []
     model.freeze_backbone()
     opt1 = torch.optim.AdamW(
         [p for p in model.parameters() if p.requires_grad],
         lr=cfg.head_lr,
         weight_decay=cfg.weight_decay,
     )
-    for epoch in range(cfg.head_epochs):
-        epoch_number = epoch + 1
-        epoch_started = time.monotonic()
-        train_loss = run_epoch(
-            model=model,
-            loader=train_loader,
-            device=device,
-            optimizer=opt1,
-            phase_name="head",
-            epoch_idx=epoch_number,
-            total_epochs=cfg.head_epochs,
-            progress_every_batches=progress_every_batches,
-        )
-        val_metrics, _, _ = evaluate(model=model, loader=eval_loader, device=device)
-        history.append(
-            {
-                "phase": 1,
-                "epoch": epoch_number,
-                "train_loss": train_loss,
-                **val_metrics,
-            }
-        )
-        print(
-            "epoch_done "
-            f"phase=head "
-            f"epoch={epoch_number}/{cfg.head_epochs} "
-            f"train_loss={train_loss:.5f} "
-            f"behavior_f1={val_metrics.get('behavior_f1', 0.0):.5f} "
-            f"stance_f1={val_metrics.get('stance_f1', 0.0):.5f} "
-            f"duration_s={time.monotonic() - epoch_started:.2f}",
-            flush=True,
-        )
+    phase_specs.append(("head", cfg.head_epochs, opt1, False))
 
     model.unfreeze_backbone()
     opt2 = torch.optim.AdamW(model.parameters(), lr=cfg.finetune_lr, weight_decay=cfg.weight_decay)
-    confusion_matrices = {head: np.zeros((HEAD_CLASS_COUNTS[head], HEAD_CLASS_COUNTS[head]), dtype=np.int64) for head in CONFUSION_HEADS}
-    for epoch in range(cfg.finetune_epochs):
-        epoch_number = epoch + 1
-        epoch_started = time.monotonic()
-        train_loss = run_epoch(
-            model=model,
-            loader=train_loader,
-            device=device,
-            optimizer=opt2,
-            phase_name="finetune",
-            epoch_idx=epoch_number,
-            total_epochs=cfg.finetune_epochs,
-            progress_every_batches=progress_every_batches,
-        )
-        val_metrics, confusion_matrices, _ = evaluate(model=model, loader=eval_loader, device=device)
-        history.append(
-            {
-                "phase": 2,
-                "epoch": epoch_number,
-                "train_loss": train_loss,
-                **val_metrics,
-            }
-        )
-        print(
-            "epoch_done "
-            f"phase=finetune "
-            f"epoch={epoch_number}/{cfg.finetune_epochs} "
-            f"train_loss={train_loss:.5f} "
-            f"behavior_f1={val_metrics.get('behavior_f1', 0.0):.5f} "
-            f"stance_f1={val_metrics.get('stance_f1', 0.0):.5f} "
-            f"duration_s={time.monotonic() - epoch_started:.2f}",
-            flush=True,
-        )
+    phase_specs.append(("finetune", cfg.finetune_epochs, opt2, True))
 
-    final_metrics, confusion_matrices, eval_visible_label_counts = evaluate(model=model, loader=eval_loader, device=device)
-    if history:
-        history[-1].update(final_metrics)
+    final_train_evaluation = LoaderEvaluation(0.0, {head: 0.0 for head in HEADS}, compute_multihead_metrics(storage={head: {"true": [], "pred": []} for head in HEADS}, id_to_labels=ID_TO_LABELS, heads=HEADS, confusion_heads=CONFUSION_HEADS))
+    final_eval_evaluation = final_train_evaluation
+
+    for phase_name, total_phase_epochs, optimizer, unfreeze in phase_specs:
+        if total_phase_epochs <= 0:
+            continue
+        if unfreeze:
+            model.unfreeze_backbone()
+        else:
+            model.freeze_backbone()
+
+        for phase_epoch in range(1, total_phase_epochs + 1):
+            epoch_index += 1
+            epoch_started = time.monotonic()
+            train_loss, train_head_losses, epoch_batch_logs, global_step = run_training_epoch(
+                model=model,
+                loader=train_loader,
+                device=device,
+                optimizer=optimizer,
+                phase_name=phase_name,
+                phase_epoch=phase_epoch,
+                total_phase_epochs=total_phase_epochs,
+                epoch_index=epoch_index,
+                progress_every_batches=progress_every_batches,
+                global_step_start=global_step,
+            )
+            batch_history.extend(epoch_batch_logs)
+            final_train_evaluation = evaluate_model(model=model, loader=train_eval_loader, device=device)
+            final_eval_evaluation = evaluate_model(model=model, loader=eval_loader, device=device)
+            row: dict[str, Any] = {
+                "phase": phase_name,
+                "phase_epoch": int(phase_epoch),
+                "epoch_index": int(epoch_index),
+                "train_loss": float(train_loss),
+                "eval_loss": float(final_eval_evaluation.loss),
+                "train_primary_score": float(final_train_evaluation.metrics.aggregate_metrics["primary_score"]),
+                "eval_primary_score": float(final_eval_evaluation.metrics.aggregate_metrics["primary_score"]),
+                "duration_s": float(time.monotonic() - epoch_started),
+                "learning_rate": float(optimizer.param_groups[0]["lr"]),
+            }
+            row.update({f"train_{head}_loss": float(value) for head, value in train_head_losses.items()})
+            row.update({f"eval_{head}_loss": float(value) for head, value in final_eval_evaluation.head_losses.items()})
+            row.update({f"train_{key}": float(value) for key, value in final_train_evaluation.metrics.aggregate_metrics.items()})
+            row.update({f"eval_{key}": float(value) for key, value in final_eval_evaluation.metrics.aggregate_metrics.items()})
+            row.update({f"train_{key}": float(value) for key, value in final_train_evaluation.metrics.summary_metrics.items()})
+            row.update({f"eval_{key}": float(value) for key, value in final_eval_evaluation.metrics.summary_metrics.items()})
+            epoch_history.append(row)
+
+            print(
+                "epoch_done "
+                f"phase={phase_name} "
+                f"epoch={phase_epoch}/{total_phase_epochs} "
+                f"epoch_index={epoch_index} "
+                f"train_loss={train_loss:.5f} "
+                f"eval_loss={final_eval_evaluation.loss:.5f} "
+                f"train_primary_score={final_train_evaluation.metrics.aggregate_metrics['primary_score']:.5f} "
+                f"eval_primary_score={final_eval_evaluation.metrics.aggregate_metrics['primary_score']:.5f} "
+                f"duration_s={time.monotonic() - epoch_started:.2f}",
+                flush=True,
+            )
 
     return TrainResult(
         model=model,
-        history=history,
-        final_metrics=final_metrics,
-        confusion_matrices=confusion_matrices,
+        epoch_history=epoch_history,
+        batch_history=batch_history,
+        final_train_evaluation=final_train_evaluation,
+        final_eval_evaluation=final_eval_evaluation,
         train_visible_label_counts=train_visible_label_counts,
         eval_visible_label_counts=eval_visible_label_counts,
         supported_labels=supported_labels_from_counts(train_visible_label_counts),
     )
-
-
-def write_training_report(
-    *,
-    out_dir: pathlib.Path,
-    dataset_dir: pathlib.Path,
-    train_split: str,
-    eval_split: str,
-    device: torch.device,
-    smoke: bool,
-    pretrained: bool,
-    weighted_sampling: bool,
-    history: list[dict[str, float]],
-    final_metrics: dict[str, float],
-    train_rows: int,
-    eval_rows: int,
-    train_label_counts: dict[str, dict[str, int]],
-    eval_label_counts: dict[str, dict[str, int]],
-    train_visible_label_counts: dict[str, dict[str, int]],
-    eval_visible_label_counts: dict[str, dict[str, int]],
-    supported_labels: dict[str, list[str]],
-    previous_metrics: dict[str, Any] | None,
-) -> tuple[pathlib.Path, pathlib.Path]:
-    report: dict[str, Any] = {
-        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-        "model_version": out_dir.name,
-        "dataset_version": dataset_dir.name,
-        "train_split": train_split,
-        "eval_split": eval_split,
-        "device": str(device),
-        "smoke": bool(smoke),
-        "pretrained": bool(pretrained),
-        "weighted_sampling": bool(weighted_sampling),
-        "train_rows": int(train_rows),
-        "eval_rows": int(eval_rows),
-        "train_label_counts": train_label_counts,
-        "eval_label_counts": eval_label_counts,
-        "train_visible_label_counts": train_visible_label_counts,
-        "eval_visible_label_counts": eval_visible_label_counts,
-        "supported_labels": supported_labels,
-        "history": history,
-        "final_metrics": final_metrics,
-        "comparison_to_previous": None,
-    }
-
-    if previous_metrics is not None:
-        prev_final = previous_metrics.get("final", {})
-        comparable_keys = [key for key in sorted(final_metrics) if key.endswith("_accuracy") or key.endswith("_f1")]
-        current_slice = {key: final_metrics[key] for key in comparable_keys}
-        previous_slice = {key: prev_final.get(key) for key in comparable_keys}
-        report["comparison_to_previous"] = {
-            "previous_model_version": previous_metrics.get("model_version"),
-            "delta_final_metrics": diff_numeric_dict(current_slice, previous_slice),
-        }
-
-    report_json = out_dir / "report.json"
-    report_json.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-
-    lines = [
-        f"# Model B Report: {out_dir.name}",
-        "",
-        f"- Dataset: `{dataset_dir.name}`",
-        f"- Splits: train `{train_split}`, eval `{eval_split}`",
-        f"- Device: `{device}`",
-        f"- Smoke run: `{smoke}`",
-        f"- Pretrained backbone: `{pretrained}`",
-        f"- Weighted sampling: `{weighted_sampling}`",
-        f"- Rows: train `{train_rows}`, eval `{eval_rows}`",
-        f"- Supported labels: `{supported_labels}`",
-        f"- Final metrics: `{final_metrics}`",
-    ]
-    if report["comparison_to_previous"] is not None:
-        cmp = report["comparison_to_previous"]
-        lines.append(f"- Delta vs `{cmp['previous_model_version']}`: `{cmp['delta_final_metrics']}`")
-    report_md = out_dir / "report.md"
-    report_md.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return report_json, report_md
 
 
 def save_checkpoint(
@@ -693,14 +652,93 @@ def save_checkpoint(
     return checkpoint_path
 
 
-def write_confusion_matrices(out_dir: pathlib.Path, confusion_matrices: dict[str, np.ndarray]) -> dict[str, pathlib.Path]:
-    output: dict[str, pathlib.Path] = {}
-    for head, matrix in confusion_matrices.items():
-        out_path = out_dir / f"{head}_confusion_matrix.csv"
-        labels = ID_TO_LABELS[head]
-        pd.DataFrame(matrix, index=labels, columns=labels).to_csv(out_path)
-        output[head] = out_path
-    return output
+def _build_legacy_metrics_payload(
+    *,
+    args: argparse.Namespace,
+    train_df: pd.DataFrame,
+    eval_df: pd.DataFrame,
+    result: TrainResult,
+    primary_result,
+) -> dict[str, Any]:
+    return {
+        "history": result.epoch_history,
+        "final": primary_result.summary_metrics,
+        "aggregate_final": primary_result.aggregate_metrics,
+        "train_rows": int(len(train_df)),
+        "eval_rows": int(len(eval_df)),
+        "train_split": args.train_split,
+        "eval_split": args.eval_split,
+        "supported_labels": result.supported_labels,
+        "train_visible_label_counts": result.train_visible_label_counts,
+        "eval_visible_label_counts": result.eval_visible_label_counts,
+    }
+
+
+def _write_training_report(
+    *,
+    out_dir: pathlib.Path,
+    dataset_dir: pathlib.Path,
+    train_split: str,
+    eval_split: str,
+    device: torch.device,
+    smoke: bool,
+    pretrained: bool,
+    weighted_sampling: bool,
+    epoch_history: list[dict[str, Any]],
+    primary_result,
+    train_result,
+    debug_outputs: dict[str, pathlib.Path],
+    previous_summary: dict[str, Any] | None,
+) -> tuple[pathlib.Path, pathlib.Path]:
+    report: dict[str, Any] = {
+        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "model_version": out_dir.name,
+        "dataset_version": dataset_dir.name,
+        "train_split": train_split,
+        "eval_split": eval_split,
+        "device": str(device),
+        "smoke": bool(smoke),
+        "pretrained": bool(pretrained),
+        "weighted_sampling": bool(weighted_sampling),
+        "supported_labels": train_result.supported_labels,
+        "epoch_history": epoch_history,
+        "primary_result": evaluation_result_to_dict(primary_result),
+        "train_loader_primary_score": float(train_result.final_train_evaluation.metrics.aggregate_metrics["primary_score"]),
+        "debug_artifacts": {key: str(path) for key, path in debug_outputs.items()},
+        "comparison_to_previous": None,
+    }
+
+    if previous_summary is not None:
+        previous_primary = previous_summary.get("summary_metrics", {})
+        previous_aggregate = previous_summary.get("aggregate_metrics", {})
+        report["comparison_to_previous"] = {
+            "delta_summary_metrics": diff_numeric_dict(primary_result.summary_metrics, previous_primary),
+            "delta_aggregate_metrics": diff_numeric_dict(primary_result.aggregate_metrics, previous_aggregate),
+        }
+
+    report_json = out_dir / "report.json"
+    report_json.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+
+    lines = [
+        f"# Model B Training Report: {out_dir.name}",
+        "",
+        f"- Dataset: `{dataset_dir.name}`",
+        f"- Train split: `{train_split}`",
+        f"- Eval split: `{eval_split}`",
+        f"- Device: `{device}`",
+        f"- Smoke run: `{smoke}`",
+        f"- Pretrained backbone: `{pretrained}`",
+        f"- Weighted sampling: `{weighted_sampling}`",
+        f"- Primary score: `{primary_result.aggregate_metrics['primary_score']:.5f}`",
+        f"- Mean balanced accuracy: `{primary_result.aggregate_metrics['mean_balanced_accuracy']:.5f}`",
+        f"- Summary metrics file: `{(out_dir / 'summary.json').name}`",
+        f"- Training debug history: `{debug_outputs['epoch_history_csv'].name}`",
+    ]
+    if report["comparison_to_previous"] is not None:
+        lines.append(f"- Delta vs previous aggregate metrics: `{report['comparison_to_previous']['delta_aggregate_metrics']}`")
+    report_md = out_dir / "report.md"
+    report_md.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return report_json, report_md
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -797,33 +835,52 @@ def main(argv: Sequence[str] | None = None) -> int:
         encoding="utf-8",
     )
 
+    primary_eval_frame = eval_df if args.eval_split != "none" else train_df
+    primary_result = evaluate_checkpoint_on_frame(
+        checkpoint_path=checkpoint_path,
+        frame=primary_eval_frame,
+        device=str(device),
+    )
+    train_report_result = evaluate_checkpoint_on_frame(
+        checkpoint_path=checkpoint_path,
+        frame=train_df,
+        device=str(device),
+    )
+
+    root_eval_outputs = write_evaluation_report(out_dir, primary_result)
+    if args.eval_split != "none":
+        write_evaluation_report(out_dir / "train_eval", train_report_result)
+
+    debug_outputs = write_training_debug_artifacts(
+        out_dir / "training_debug",
+        epoch_history=result.epoch_history,
+        batch_history=result.batch_history,
+    )
+
     metrics_out = out_dir / "metrics.json"
     metrics_out.write_text(
         json.dumps(
-            {
-                "history": result.history,
-                "final": result.final_metrics,
-                "train_rows": int(len(train_df)),
-                "eval_rows": int(len(eval_df)),
-                "train_split": args.train_split,
-                "eval_split": args.eval_split,
-                "supported_labels": result.supported_labels,
-            },
+            _build_legacy_metrics_payload(
+                args=args,
+                train_df=train_df,
+                eval_df=eval_df,
+                result=result,
+                primary_result=primary_result,
+            ),
             indent=2,
         )
         + "\n",
         encoding="utf-8",
     )
 
-    previous_metrics: dict[str, Any] | None = None
+    previous_summary: dict[str, Any] | None = None
     prev_dir = find_previous_version_dir(layout.models_attributes, "convnextv2s", out_dir.name)
     if prev_dir is not None:
-        prev_metrics_path = prev_dir / "metrics.json"
-        if prev_metrics_path.exists():
-            previous_metrics = json.loads(prev_metrics_path.read_text(encoding="utf-8"))
-            previous_metrics["model_version"] = prev_dir.name
+        prev_summary_path = prev_dir / "summary.json"
+        if prev_summary_path.exists():
+            previous_summary = json.loads(prev_summary_path.read_text(encoding="utf-8"))
 
-    report_json, report_md = write_training_report(
+    report_json, report_md = _write_training_report(
         out_dir=out_dir,
         dataset_dir=dataset_dir,
         train_split=args.train_split,
@@ -832,25 +889,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         smoke=bool(args.smoke),
         pretrained=not args.no_pretrained,
         weighted_sampling=not args.no_weighted_sampling,
-        history=result.history,
-        final_metrics=result.final_metrics,
-        train_rows=len(train_df),
-        eval_rows=len(eval_df),
-        train_label_counts=summarize_labels(train_df),
-        eval_label_counts=summarize_labels(eval_df),
-        train_visible_label_counts=result.train_visible_label_counts,
-        eval_visible_label_counts=result.eval_visible_label_counts,
-        supported_labels=result.supported_labels,
-        previous_metrics=previous_metrics,
+        epoch_history=result.epoch_history,
+        primary_result=primary_result,
+        train_result=result,
+        debug_outputs=debug_outputs,
+        previous_summary=previous_summary,
     )
-
-    confusion_outputs = write_confusion_matrices(out_dir, result.confusion_matrices)
 
     print(f"output_dir={out_dir}")
     print(f"checkpoint={checkpoint_path}")
+    print(f"summary_json={root_eval_outputs['summary_json']}")
+    print(f"summary_csv={root_eval_outputs['summary_csv']}")
     print(f"metrics={metrics_out}")
-    for head, path in confusion_outputs.items():
-        print(f"{head}_confusion_matrix={path}")
+    for head in primary_result.confusion_matrices:
+        print(f"{head}_confusion_matrix={out_dir / f'{head}_confusion_matrix.csv'}")
     print(f"report_json={report_json}")
     print(f"report_md={report_md}")
     return 0

@@ -130,14 +130,26 @@ def test_split_builder_preserves_previous_test_and_tops_up(tmp_path: pathlib.Pat
     layout = ensure_layout(data_home, SPECIES_SLUG)
     split_v1 = layout.derived_splits / "split_v001"
     split_v2 = layout.derived_splits / "split_v002"
+    images_v1 = set(pd.read_parquet(layout.labelstudio_normalized / "ann_v001" / "images_labels.parquet")["image_id"].astype(str).tolist())
+    images_v2 = set(pd.read_parquet(layout.labelstudio_normalized / "ann_v002" / "images_labels.parquet")["image_id"].astype(str).tolist())
     test_v1 = set(pd.read_parquet(split_v1 / "test_groups.parquet")["image_id"].astype(str).tolist())
+    train_pool_v1 = set(pd.read_parquet(split_v1 / "train_pool_groups.parquet")["image_id"].astype(str).tolist())
     test_v2 = set(pd.read_parquet(split_v2 / "test_groups.parquet")["image_id"].astype(str).tolist())
+    train_pool_v2 = set(pd.read_parquet(split_v2 / "train_pool_groups.parquet")["image_id"].astype(str).tolist())
     folds_v2 = pd.read_parquet(split_v2 / "fold_assignments.parquet")
     manifest_v2 = json.loads((split_v2 / "split_manifest.json").read_text(encoding="utf-8"))
+    new_images_v2 = images_v2 - images_v1
+    new_test_images_v2 = test_v2 - test_v1
 
     assert test_v1
     assert test_v1.issubset(test_v2)
+    assert train_pool_v1.issubset(train_pool_v2)
+    assert new_test_images_v2
+    assert new_test_images_v2.issubset(new_images_v2)
+    assert (images_v1 - test_v1).isdisjoint(test_v2)
+    assert train_pool_v2 & new_images_v2
     assert manifest_v2["test_membership"]["removed"] == 0
+    assert manifest_v2["test_membership"]["blocked_historical_train_image_ids"]
     assert set(folds_v2["image_id"].astype(str)).isdisjoint(test_v2)
     assert len(set(folds_v2["fold_id"].astype(int).tolist())) == 5
     assert (split_v2 / "split_report.md").exists()
