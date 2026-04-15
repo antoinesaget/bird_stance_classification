@@ -128,3 +128,48 @@ def test_train_attributes_cv_writes_fold_and_summary_reports(tmp_path: Path, mon
     assert (output_dir / "summary.json").exists()
     assert (output_dir / "fold_metrics.csv").exists()
     assert (output_dir / "fold_01" / "candidate_eval" / "summary.json").exists()
+
+
+def test_load_train_pool_with_folds_overwrites_existing_fold_id_column(tmp_path: Path) -> None:
+    dataset_dir = tmp_path / "dataset"
+    dataset_dir.mkdir()
+    frame = pd.DataFrame(
+        [
+            {
+                "image_id": "img-0",
+                "group_id": "g0",
+                "crop_path": __file__,
+                "isbird": "yes",
+                "readability": "readable",
+                "specie": "correct",
+                "behavior": "resting",
+                "substrate": "water",
+                "stance": "bipedal",
+                "fold_id": 99,
+            },
+            {
+                "image_id": "img-1",
+                "group_id": "g1",
+                "crop_path": __file__,
+                "isbird": "yes",
+                "readability": "readable",
+                "specie": "correct",
+                "behavior": "resting",
+                "substrate": "water",
+                "stance": "bipedal",
+                "fold_id": 99,
+            },
+        ]
+    )
+    assignments = pd.DataFrame(
+        [
+            {"image_id": "img-0", "fold_id": 0},
+            {"image_id": "img-1", "fold_id": 1},
+        ]
+    )
+    frame.to_parquet(dataset_dir / "train_pool.parquet", index=False)
+    assignments.to_parquet(dataset_dir / "fold_assignments.parquet", index=False)
+
+    merged = cv_mod.load_train_pool_with_folds(dataset_dir=dataset_dir, smoke=False)
+
+    assert list(merged["fold_id"]) == [0, 1]

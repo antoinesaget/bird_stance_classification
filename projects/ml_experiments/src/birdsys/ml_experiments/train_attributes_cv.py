@@ -71,6 +71,8 @@ def load_train_pool_with_folds(*, dataset_dir: pathlib.Path, smoke: bool) -> pd.
     assignments["fold_id"] = assignments["fold_id"].astype(int)
 
     pool_df = pool_df.copy()
+    if "fold_id" in pool_df.columns:
+        pool_df = pool_df.drop(columns=["fold_id"])
     pool_df["image_id"] = pool_df["image_id"].astype(str)
     pool_df = pool_df.merge(assignments, on="image_id", how="left", validate="many_to_one")
     if pool_df["fold_id"].isna().any():
