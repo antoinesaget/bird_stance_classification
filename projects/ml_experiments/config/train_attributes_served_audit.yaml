@@ -1,0 +1,11 @@
+# Purpose: Reproduce the current served Model B shape in the new minimal training pipeline.
+backbone: convnextv2_nano.fcmae_ft_in1k
+image_size: 256
+batch_size: 24
+num_workers: 4
+head_epochs: 2
+finetune_epochs: 4
+head_lr: 5.0e-4
+finetune_lr: 1.0e-4
+weight_decay: 1.0e-4
+device: auto

@@ -26,6 +26,7 @@ dependencies = [
 birdsys-train-attributes = "birdsys.ml_experiments.train_attributes:main"
 birdsys-train-attributes-cv = "birdsys.ml_experiments.train_attributes_cv:main"
 birdsys-evaluate-model-b = "birdsys.ml_experiments.evaluate_model_b:main"
+birdsys-audit-served-model-b = "birdsys.ml_experiments.audit_served_model_b:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -16,7 +16,7 @@ import pandas as pd
 
 from birdsys.core import ensure_layout, next_version_dir
 
-from .common import CONFUSION_HEADS, HEADS, ID_TO_LABELS, collect_visible_label_counts
+from .common import CONFUSION_HEADS, HEADS, ID_TO_LABELS, collect_visible_label_counts, resolve_default_served_model_b_artifact_path
 from .model_b_evaluation import (
     compare_evaluation_results,
     evaluate_checkpoint_on_frame,
@@ -52,10 +52,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--old-model-checkpoint",
         help="Path to the baseline checkpoint file or served artifact directory",
-        default=os.getenv(
-            "MODEL_B_CHECKPOINT",
-            "/data/birds/black_winged_stilt/models/attributes/served/model_b/current",
-        ),
+        default="",
     )
     return parser.parse_args(argv)
 
@@ -156,7 +153,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not fold_ids:
         raise RuntimeError("No fold assignments found in train_pool.parquet")
 
-    baseline_checkpoint = pathlib.Path(args.old_model_checkpoint).expanduser().resolve()
+    baseline_checkpoint = (
+        pathlib.Path(args.old_model_checkpoint).expanduser().resolve()
+        if args.old_model_checkpoint
+        else resolve_default_served_model_b_artifact_path(data_home=data_home, species_slug=args.species_slug)
+    )
     if not baseline_checkpoint.exists():
         raise FileNotFoundError(baseline_checkpoint)
 

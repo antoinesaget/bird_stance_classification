@@ -1,10 +1,13 @@
 """Purpose: Share Model B label constants and dataset summaries across training and evaluation."""
 from __future__ import annotations
 
+import os
+import pathlib
 from typing import Any
 
 import pandas as pd
 
+from birdsys.core import ensure_layout
 from birdsys.core.attributes import (
     BEHAVIOR_TO_ID,
     READABILITY_TO_ID,
@@ -79,3 +82,17 @@ def collect_visible_label_counts(frame: pd.DataFrame) -> dict[str, dict[str, int
 
 def flatten_dict(prefix: str, payload: dict[str, Any]) -> dict[str, Any]:
     return {f"{prefix}{key}": value for key, value in payload.items()}
+
+
+def resolve_default_served_model_b_artifact_path(*, data_home: pathlib.Path, species_slug: str) -> pathlib.Path:
+    override = os.getenv("MODEL_B_CHECKPOINT")
+    if override:
+        return pathlib.Path(override).expanduser().resolve()
+
+    layout = ensure_layout(data_home, species_slug)
+    primary = layout.models_attributes / "served" / "model_b" / "current"
+    legacy_project_root = pathlib.Path("/data/birds_project/models/attributes/served/model_b/current")
+    for candidate in (primary, legacy_project_root):
+        if candidate.exists():
+            return candidate.resolve()
+    return primary.resolve()

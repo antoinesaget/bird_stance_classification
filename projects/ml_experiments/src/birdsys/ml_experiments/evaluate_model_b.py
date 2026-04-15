@@ -13,6 +13,7 @@ from birdsys.ml_experiments.model_b_evaluation import (
     evaluate_checkpoint_on_dataset,
     evaluation_result_to_dict,
 )
+from birdsys.ml_experiments.common import resolve_default_served_model_b_artifact_path
 from birdsys.ml_experiments.reports import write_evaluation_report
 
 
@@ -32,8 +33,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def default_served_artifact_path(*, data_home: pathlib.Path, species_slug: str) -> pathlib.Path:
-    layout = ensure_layout(data_home, species_slug)
-    return layout.models_attributes / "served" / "model_b" / "current"
+    return resolve_default_served_model_b_artifact_path(data_home=data_home, species_slug=species_slug)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
